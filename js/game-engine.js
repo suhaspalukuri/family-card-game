@@ -20,6 +20,55 @@ function sortByValue(cards) {
   return [...cards].sort((a, b) => a.value - b.value);
 }
 
+function getSubsets(arr) {
+  const result = [[]];
+  for (const x of arr) {
+    const len = result.length;
+    for (let i = 0; i < len; i++) {
+      result.push([...result[i], x]);
+    }
+  }
+  return result;
+}
+
+function calculateGaps(sortedReals) {
+  let gaps = 0;
+  for (let i = 1; i < sortedReals.length; i++) {
+    const diff = sortedReals[i].value - sortedReals[i - 1].value;
+    if (diff <= 0) return -1; // duplicate rank, invalid
+    gaps += diff - 1;
+  }
+  return gaps;
+}
+
+function checkSequenceReals(reals) {
+  const sortedNormal = [...reals].sort((a, b) => a.value - b.value);
+  const gapsNormal = calculateGaps(sortedNormal);
+
+  const hasAce = reals.some(c => c.rank === 'A');
+  if (hasAce) {
+    const mapped = reals.map(c => c.rank === 'A' ? { ...c, value: 14 } : c);
+    const sortedAce14 = mapped.sort((a, b) => a.value - b.value);
+    const gapsAce14 = calculateGaps(sortedAce14);
+    
+    if (gapsNormal !== -1 && gapsAce14 !== -1) {
+      return Math.min(gapsNormal, gapsAce14);
+    }
+    if (gapsNormal !== -1) return gapsNormal;
+    if (gapsAce14 !== -1) return gapsAce14;
+    return -1;
+  }
+  return gapsNormal;
+}
+
+function isCandidatePure(cards) {
+  if (cards.some(c => c.isPrintedJoker)) return false;
+  const suit = cards[0].suit;
+  if (cards.some(c => c.suit !== suit)) return false;
+  const gaps = checkSequenceReals(cards);
+  return gaps === 0;
+}
+
 /**
  * Find all possible sequences (3+ consecutive same-suit cards)
  * Returns arrays of card groups.
@@ -40,60 +89,32 @@ function findSequences(cards, secretJoker) {
   const allSequences = [];
 
   for (const suit of Object.keys(suitGroups)) {
-    const suited = sortByValue(suitGroups[suit]);
-    // Try to find sequences using a backtracking approach
-    const seqs = extractSequences(suited, wildcards, secretJoker);
-    allSequences.push(...seqs);
+    const suited = suitGroups[suit];
+    const subsets = getSubsets(suited);
+    for (const reals of subsets) {
+      if (reals.length === 0) continue;
+      const gaps = checkSequenceReals(reals);
+      if (gaps === -1) continue;
+      if (gaps > wildcards.length) continue;
+
+      const minWilds = Math.max(gaps, 3 - reals.length);
+      const maxWilds = wildcards.length;
+
+      for (let w = minWilds; w <= maxWilds; w++) {
+        const wildcardCombos = getCombinations(wildcards, w);
+        for (const chosenWilds of wildcardCombos) {
+          const comboCards = [...reals, ...chosenWilds];
+          allSequences.push({
+            cards: comboCards,
+            isPure: isCandidatePure(comboCards),
+            type: 'sequence',
+          });
+        }
+      }
+    }
   }
 
   return allSequences;
-}
-
-
-/**
- * Extract sequences from a sorted same-suit array, optionally using wildcards.
- * Returns an array of sequence groups (each group is Card[]).
- */
-function extractSequences(suited, wildcards, secretJoker) {
-  const sequences = [];
-
-  // Sliding window: look for runs of 3+
-  for (let start = 0; start < suited.length - 1; start++) {
-    let run = [suited[start]];
-    let wildcardPool = [...wildcards];
-    let prev = suited[start].value;
-
-    for (let i = start + 1; i < suited.length; i++) {
-      const curr = suited[i].value;
-      const gap  = curr - prev;
-
-      if (gap === 0) continue; // duplicate value, skip
-
-      if (gap === 1) {
-        run.push(suited[i]);
-        prev = curr;
-      } else if (gap <= wildcardPool.length + 1) {
-        // Fill the gap with wildcards
-        const jokersNeeded = gap - 1;
-        const usedJokers = wildcardPool.splice(0, jokersNeeded);
-        run.push(...usedJokers, suited[i]);
-        prev = curr;
-      } else {
-        break; // gap too large
-      }
-    }
-
-    if (run.length >= 3) {
-      // Also try inserting wildcards at the start/end for longer sequences
-      sequences.push({
-        cards: run,
-        isPure: !run.some(c => isWildcard(c, secretJoker)),
-        type: 'sequence',
-      });
-    }
-  }
-
-  return sequences;
 }
 
 /**
@@ -116,16 +137,55 @@ function findTriplets(cards, secretJoker) {
 
   for (const rank of Object.keys(rankGroups)) {
     const group = rankGroups[rank];
-    if (group.length >= 3) {
-      triplets.push({ cards: group, isPure: true, type: 'triplet' });
-    } else if (group.length + wildcards.length >= 3) {
-      const needed = 3 - group.length;
-      const jokers = wildcards.slice(0, needed);
-      triplets.push({ cards: [...group, ...jokers], isPure: false, type: 'triplet' });
+    // Filter duplicates of the same suit in the triplet (standard Indian Rummy triplet rule: different suits)
+    const uniqueSuitCards = [];
+    const seenSuits = new Set();
+    group.forEach(c => {
+      if (!seenSuits.has(c.suit)) {
+        seenSuits.add(c.suit);
+        uniqueSuitCards.push(c);
+      }
+    });
+
+    // Generate triplet candidates of size 3 and 4
+    for (let size of [3, 4]) {
+      for (let r = 1; r <= Math.min(size, uniqueSuitCards.length); r++) {
+        const w = size - r;
+        if (w <= wildcards.length) {
+          const combos = getCombinations(uniqueSuitCards, r);
+          combos.forEach(combo => {
+            const jokerCombos = getCombinations(wildcards, w);
+            jokerCombos.forEach(chosenJokers => {
+              triplets.push({
+                cards: [...combo, ...chosenJokers],
+                isPure: w === 0,
+                type: 'triplet'
+              });
+            });
+          });
+        }
+      }
     }
   }
 
   return triplets;
+}
+
+function getCombinations(arr, k) {
+  const results = [];
+  function helper(start, combo) {
+    if (combo.length === k) {
+      results.push([...combo]);
+      return;
+    }
+    for (let i = start; i < arr.length; i++) {
+      combo.push(arr[i]);
+      helper(i + 1, combo);
+      combo.pop();
+    }
+  }
+  helper(0, []);
+  return results;
 }
 
 /**
@@ -266,16 +326,13 @@ function validateSequenceCards(reals, wilds, secretJoker) {
     return { valid: false, reason: 'Sequence must be all same suit' };
   }
 
-  const sorted = [...reals].sort((a, b) => a.value - b.value);
-  let wildCount = wilds.length;
+  const gaps = checkSequenceReals(reals);
+  if (gaps === -1) {
+    return { valid: false, reason: 'Duplicate card or invalid ranks in sequence' };
+  }
 
-  // Check that gaps between consecutive cards can be filled by wildcards
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i].value - sorted[i - 1].value;
-    if (gap <= 0) return { valid: false, reason: 'Duplicate card in sequence' };
-    const gapNeeded = gap - 1;
-    wildCount -= gapNeeded;
-    if (wildCount < 0) return { valid: false, reason: 'Not enough wildcards to fill sequence gaps' };
+  if (wilds.length < gaps) {
+    return { valid: false, reason: 'Not enough wildcards to fill sequence gaps' };
   }
 
   return { valid: true };
@@ -286,29 +343,91 @@ function validateSequenceCards(reals, wilds, secretJoker) {
  * Simplified greedy approach: find 2 sequences first, then check rest.
  */
 function autoValidate(hand, secretJoker) {
-  const sequences = findSequences(hand, secretJoker);
-  const pureSeqs  = sequences.filter(s => s.isPure);
+  const seqCandidates = findSequences(hand, secretJoker);
+  const tripletCandidates = findTriplets(hand, secretJoker);
+  const allCandidates = [...seqCandidates, ...tripletCandidates];
 
-  if (pureSeqs.length === 0) {
+  let bestGroups = [];
+  let bestGroupedCount = 0;
+  let bestIsValid = false;
+
+  function search(index, currentGroups, usedCardIds) {
+    const groupedCount = currentGroups.reduce((sum, g) => sum + g.cards.length, 0);
+    const seqs = currentGroups.filter(g => g.type === 'sequence');
+    const pureSeqs = seqs.filter(g => g.isPure);
+    const isValidDeclare = groupedCount === 13 && seqs.length >= 2 && pureSeqs.length >= 1;
+
+    if (isValidDeclare) {
+      bestGroups = [...currentGroups];
+      bestGroupedCount = 13;
+      bestIsValid = true;
+      return true; // Found a winning layout!
+    }
+
+    if (groupedCount > bestGroupedCount || (groupedCount === bestGroupedCount && !bestIsValid)) {
+      bestGroups = [...currentGroups];
+      bestGroupedCount = groupedCount;
+    }
+
+    for (let i = index; i < allCandidates.length; i++) {
+      const cand = allCandidates[i];
+      const overlaps = cand.cards.some(c => usedCardIds.has(c.id));
+      if (overlaps) continue;
+
+      const nextUsed = new Set(usedCardIds);
+      cand.cards.forEach(c => nextUsed.add(c.id));
+      currentGroups.push(cand);
+
+      const foundWin = search(i + 1, currentGroups, nextUsed);
+      if (foundWin) return true;
+
+      currentGroups.pop();
+    }
+    return false;
+  }
+
+  search(0, [], new Set());
+
+  if (bestIsValid) {
     return {
-      valid: false,
-      reason: 'No pure sequence found. You need at least 1 pure sequence.',
-      groups: [],
+      valid: true,
+      reason: 'Valid declaration! 🎉',
+      groups: bestGroups,
+      pureSeqCount: bestGroups.filter(g => g.type === 'sequence' && g.isPure).length,
+      seqCount: bestGroups.filter(g => g.type === 'sequence').length,
+      tripletCount: bestGroups.filter(g => g.type === 'triplet').length,
+      checks: buildChecks(bestGroups, secretJoker, true, true),
     };
   }
-  if (sequences.length < 2) {
-    return {
-      valid: false,
-      reason: 'Need at least 2 sequences. Try grouping your cards.',
-      groups: [],
-    };
+
+  const usedIds = new Set(bestGroups.flatMap(g => g.cards.map(c => c.id)));
+  const unmatched = hand.filter(c => !usedIds.has(c.id));
+
+  const finalGroups = [...bestGroups];
+  if (unmatched.length > 0) {
+    finalGroups.push({ cards: unmatched, type: 'unmatched', isPure: false });
+  }
+
+  const seqs = bestGroups.filter(g => g.type === 'sequence');
+  const pureSeqs = seqs.filter(g => g.isPure);
+  let reason = 'All 13 cards must be organized into valid groups.';
+  if (pureSeqs.length === 0) {
+    reason = 'You need at least 1 pure sequence (no jokers).';
+  } else if (seqs.length < 2) {
+    reason = 'You need at least 2 sequences.';
   }
 
   return {
     valid: false,
-    reason: 'Please arrange your cards into groups and try declaring again.',
-    groups: [],
+    reason,
+    groups: finalGroups,
+    checks: buildChecks(finalGroups, secretJoker, pureSeqs.length >= 1, seqs.length >= 2),
   };
+}
+
+function findBestGrouping(hand, secretJoker) {
+  const res = autoValidate(hand, secretJoker);
+  return { valid: res.valid, groups: res.groups };
 }
 
 /**
@@ -372,4 +491,5 @@ export {
   calculatePoints,
   groupLabel,
   buildChecks,
+  findBestGrouping,
 };

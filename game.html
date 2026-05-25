@@ -126,6 +126,12 @@
         <button class="btn btn-ghost btn-sm" id="group-mode-btn" aria-pressed="false">
           🗂️ Group Mode
         </button>
+        <button class="btn btn-outline btn-sm hidden" id="group-cards-btn">
+          🔗 Group Selected
+        </button>
+        <button class="btn btn-primary btn-sm" id="discard-btn" disabled>
+          📤 Discard Selected
+        </button>
         <button class="btn btn-declare" id="declare-btn" disabled
           aria-label="Declare your hand">
           🏆 Declare!
@@ -138,6 +144,7 @@
       <div class="sort-panel" id="sort-panel" aria-label="Sort options">
         <button class="sort-btn active" data-sort="suit" aria-pressed="true">By Suit</button>
         <button class="sort-btn" data-sort="rank" aria-pressed="false">By Rank</button>
+        <button class="sort-btn" data-sort="group" aria-pressed="false">Grouped</button>
         <button class="sort-btn" data-sort="none" aria-pressed="false">Original</button>
       </div>
       <div class="hand-container" id="hand-container" role="list" aria-label="Your cards"></div>
@@ -216,9 +223,9 @@
 
 <script type="module">
 import { getCurrentPlayer, subscribeToGameState, updateGameState, setPlayerOnline,
-         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=8';
+         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=9';
 import { sortBySuit, sortByRank, isWildcard } from './js/deck.js';
-import { validateHand, groupLabel, buildChecks } from './js/game-engine.js';
+import { validateHand, groupLabel, buildChecks, findBestGrouping } from './js/game-engine.js';
 import { createCardEl, renderHand, renderOpponentPanel, showToast,
          launchConfetti, updateTimerRing, escHtml, copyToClipboard } from './js/ui.js';
 
@@ -240,6 +247,7 @@ let timerSeconds  = 30;
 let unsubscribe   = null;
 let unsubSession  = null;
 let gameStartTime = Date.now();
+let isActionPending = false;
 
 // ─────────────────────────────────────────────────────────
 // Auth Guard
@@ -346,6 +354,11 @@ function updateWaitingRoom(session) {
 function onGameStateUpdate(state) {
   if (!state) return;
   gameState = state;
+  isActionPending = false;
+  
+  if (state.currentTurnPlayerId !== player.playerId) {
+    selectedCards.clear();
+  }
 
   // Save to local storage cache for recovery on refresh
   try {
@@ -386,33 +399,157 @@ function onGameStateUpdate(state) {
 // ─────────────────────────────────────────────────────────
 // Render My Hand
 // ─────────────────────────────────────────────────────────
+function updateActionButtons() {
+  const isMy = isMyTurn();
+  const phase = gameState?.turnPhase;
+  
+  const discardBtn = document.getElementById('discard-btn');
+  const declareBtn = document.getElementById('declare-btn');
+  const groupCardsBtn = document.getElementById('group-cards-btn');
+
+  // Discard Selected Button
+  if (discardBtn) {
+    discardBtn.disabled = !isMy || phase !== 'discard' || selectedCards.size !== 1;
+  }
+
+  // Declare Button
+  if (declareBtn) {
+    declareBtn.disabled = !isMy || phase !== 'discard' || (myHand.length !== 13 && myHand.length !== 14);
+  }
+
+  // Group Selected Button (shows only when 2 or more cards are selected)
+  if (groupCardsBtn) {
+    if (selectedCards.size >= 2) {
+      groupCardsBtn.classList.remove('hidden');
+    } else {
+      groupCardsBtn.classList.add('hidden');
+    }
+  }
+}
+
+function groupSelectedCards() {
+  if (selectedCards.size < 2) return;
+  const selectedList = myHand.filter(c => selectedCards.has(c.id));
+  
+  // Remove these cards from any existing groups
+  groups = groups.map(g => ({
+    ...g,
+    cards: g.cards.filter(c => !selectedCards.has(c.id))
+  })).filter(g => g.cards.length > 0);
+  
+  // Detect group type
+  const secretJoker = gameState?.secretJoker;
+  let type = 'sequence';
+  const reals = selectedList.filter(c => !isWildcard(c, secretJoker));
+  if (reals.length > 0) {
+    const ranks = [...new Set(reals.map(c => c.rank))];
+    if (ranks.length === 1) {
+      type = 'triplet';
+    }
+  }
+  
+  const isPure = type === 'sequence' && !selectedList.some(c => isWildcard(c, secretJoker));
+  
+  groups.push({
+    cards: selectedList,
+    type,
+    isPure
+  });
+  
+  // Put any remaining cards that are not in any group into their own unmatched group
+  const groupedIds = new Set(groups.flatMap(g => g.cards.map(c => c.id)));
+  const unmatched = myHand.filter(c => !groupedIds.has(c.id));
+  
+  // Remove any old unmatched group
+  groups = groups.filter(g => g.type !== 'unmatched');
+  if (unmatched.length > 0) {
+    groups.push({
+      cards: unmatched,
+      type: 'unmatched',
+      isPure: false
+    });
+  }
+  
+  selectedCards.clear();
+  sortMode = 'group'; // Switch to group view
+  
+  // Update sort panel button state to active
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sort === 'group');
+    btn.setAttribute('aria-pressed', btn.dataset.sort === 'group' ? 'true' : 'false');
+  });
+
+  renderMyHand();
+  showToast('Cards grouped successfully!', 'success');
+}
+
 function renderMyHand() {
   const container = document.getElementById('hand-container');
   const secretJoker = gameState?.secretJoker;
 
-  let displayHand = [...myHand];
-  if (sortMode === 'suit') displayHand = sortBySuit(myHand);
-  if (sortMode === 'rank') displayHand = sortByRank(myHand);
-
   container.innerHTML = '';
-  displayHand.forEach((card, i) => {
-    const el = createCardEl(card, secretJoker, { selected: selectedCards.has(card.id) });
-    el.setAttribute('role', 'listitem');
-    el.setAttribute('aria-label', `${card.rank} of ${card.suit}`);
-    el.style.animationDelay = `${i * 30}ms`;
-    el.classList.add('card-dealing');
-    el.addEventListener('click', () => onCardClick(card, el));
-    container.appendChild(el);
-  });
+
+  if (sortMode === 'group') {
+    // If no custom groups exist, run the auto-grouper to generate groups
+    if (groups.length === 0) {
+      const res = findBestGrouping(myHand, secretJoker);
+      groups = res.groups;
+    }
+
+    let cardIndex = 0;
+    groups.forEach((group, groupIdx) => {
+      group.cards.forEach((card, i) => {
+        // Double check card is actually still in myHand (safety)
+        if (!myHand.some(c => c.id === card.id)) return;
+        
+        const el = createCardEl(card, secretJoker, { selected: selectedCards.has(card.id) });
+        el.setAttribute('role', 'listitem');
+        el.setAttribute('aria-label', `${card.rank} of ${card.suit}`);
+        el.style.animationDelay = `${cardIndex * 30}ms`;
+        el.classList.add('card-dealing');
+        
+        // Add a margin to visually separate different groups
+        if (i === 0 && groupIdx > 0) {
+          el.style.marginLeft = '1.5rem';
+        }
+        
+        el.addEventListener('click', () => onCardClick(card, el));
+        el.addEventListener('dblclick', () => {
+          if (isMyTurn() && gameState?.turnPhase === 'discard') {
+            selectedCards.clear();
+            discardCard(card);
+          }
+        });
+        container.appendChild(el);
+        cardIndex++;
+      });
+    });
+  } else {
+    let displayHand = [...myHand];
+    if (sortMode === 'suit') displayHand = sortBySuit(myHand);
+    if (sortMode === 'rank') displayHand = sortByRank(myHand);
+
+    displayHand.forEach((card, i) => {
+      const el = createCardEl(card, secretJoker, { selected: selectedCards.has(card.id) });
+      el.setAttribute('role', 'listitem');
+      el.setAttribute('aria-label', `${card.rank} of ${card.suit}`);
+      el.style.animationDelay = `${i * 30}ms`;
+      el.classList.add('card-dealing');
+      el.addEventListener('click', () => onCardClick(card, el));
+      el.addEventListener('dblclick', () => {
+        if (isMyTurn() && gameState?.turnPhase === 'discard') {
+          selectedCards.clear();
+          discardCard(card);
+        }
+      });
+      container.appendChild(el);
+    });
+  }
 
   document.getElementById('my-card-count').textContent = `${myHand.length} cards`;
-  document.getElementById('declare-btn').disabled =
-    !isMyTurn() || gameState?.turnPhase !== 'discard' || myHand.length !== 13;
+  updateActionButtons();
 }
 
-// ─────────────────────────────────────────────────────────
-// Card Click Handler
-// ─────────────────────────────────────────────────────────
 function onCardClick(card, el) {
   const phase = gameState?.turnPhase;
 
@@ -426,11 +563,15 @@ function onCardClick(card, el) {
     return;
   }
 
-  if (phase === 'discard') {
-    // Discard this card
-    discardCard(card);
-    return;
+  // Toggle selection
+  if (selectedCards.has(card.id)) {
+    selectedCards.delete(card.id);
+  } else {
+    selectedCards.add(card.id);
   }
+  
+  // Re-render hand to show selection highlight
+  renderMyHand();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -477,6 +618,43 @@ function renderOpponents(state) {
 // ─────────────────────────────────────────────────────────
 // Render Center Piles
 // ─────────────────────────────────────────────────────────
+function checkPlayerHasPureSequence(hand, secretJoker) {
+  const suitGroups = {};
+  for (const card of hand) {
+    if (card.isPrintedJoker) continue; // Printed jokers cannot be in a pure sequence
+    if (!suitGroups[card.suit]) suitGroups[card.suit] = [];
+    suitGroups[card.suit].push(card);
+  }
+
+  for (const suit of Object.keys(suitGroups)) {
+    const cards = suitGroups[suit];
+    if (cards.length < 3) continue;
+
+    // Sort by rank value
+    const sorted = [...cards].sort((a, b) => a.value - b.value);
+    
+    // Support Q-K-A wrapping
+    if (sorted.some(c => c.rank === 'A') && sorted.some(c => c.rank === 'K')) {
+      sorted.push({ rank: 'A', value: 14, suit: suit });
+    }
+
+    let consecutiveCount = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const gap = sorted[i].value - sorted[i - 1].value;
+      if (gap === 0) continue; // Ignore duplicate cards
+      if (gap === 1) {
+        consecutiveCount++;
+        if (consecutiveCount >= 3) {
+          return true; // Found a pure sequence of 3 or more!
+        }
+      } else {
+        consecutiveCount = 1; // Reset gap
+      }
+    }
+  }
+  return false;
+}
+
 function renderCenter(state) {
   // Draw pile
   const drawCount = (state.drawPile || []).length;
@@ -494,8 +672,31 @@ function renderCenter(state) {
   const jokerEl = document.getElementById('secret-joker-display');
   jokerEl.innerHTML = '';
   if (state.secretJoker) {
-    const jokerCard = createCardEl(state.secretJoker, null, { size: 'lg' });
-    jokerEl.appendChild(jokerCard);
+    const hasPure = checkPlayerHasPureSequence(myHand, state.secretJoker);
+    if (hasPure) {
+      const jokerCard = createCardEl(state.secretJoker, null, { size: 'lg' });
+      jokerEl.appendChild(jokerCard);
+    } else {
+      // Render face-down card
+      const jokerCard = document.createElement('div');
+      jokerCard.className = 'card card-lg card-back';
+      jokerCard.setAttribute('title', 'Form a pure sequence (consecutive same suit, no jokers) to reveal the Secret Joker!');
+      jokerCard.style.cursor = 'help';
+      
+      const badge = document.createElement('div');
+      badge.style.cssText = `
+        position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);
+        background: rgba(13, 27, 42, 0.85); color: #C9A84C;
+        border: 1px solid rgba(201, 168, 76, 0.4); border-radius: 8px;
+        padding: 4px 8px; font-size: 10px; font-weight: 800; text-align: center;
+        width: 70px; pointer-events: none;
+      `;
+      badge.innerHTML = '🔒 PURE<br>SEQ REQ';
+      jokerCard.style.position = 'relative';
+      jokerCard.appendChild(badge);
+      
+      jokerEl.appendChild(jokerCard);
+    }
   }
 }
 
@@ -540,10 +741,12 @@ function isMyTurn() {
 // Draw Card
 // ─────────────────────────────────────────────────────────
 async function drawFromDeck() {
-  if (!isMyTurn() || gameState?.turnPhase !== 'draw') return;
+  if (!isMyTurn() || gameState?.turnPhase !== 'draw' || isActionPending) return;
+  isActionPending = true;
   const drawPile = [...(gameState.drawPile || [])];
   if (drawPile.length === 0) {
     showToast('Draw pile is empty!', 'warning');
+    isActionPending = false;
     return;
   }
   const drawnCard = drawPile.pop();
@@ -555,15 +758,23 @@ async function drawFromDeck() {
     [`hands/${player.playerId}`]: myHand,
     [`handsPublic/${player.playerId}/cardCount`]: myHand.length,
   };
-  await updateGameState(sessionId, updates);
-  showToast(`Drew: ${drawnCard.rank} ${drawnCard.suit === 'joker' ? '🃏' : ''}`, 'info', 2000);
+  try {
+    await updateGameState(sessionId, updates);
+    showToast(`Drew: ${drawnCard.rank} ${drawnCard.suit === 'joker' ? '🃏' : ''}`, 'info', 2000);
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to draw card. Please try again.', 'error');
+    isActionPending = false;
+  }
 }
 
 async function drawFromDiscard() {
-  if (!isMyTurn() || gameState?.turnPhase !== 'draw') return;
+  if (!isMyTurn() || gameState?.turnPhase !== 'draw' || isActionPending) return;
+  isActionPending = true;
   const discardPile = [...(gameState.discardPile || [])];
   if (discardPile.length === 0) {
     showToast('Discard pile is empty!', 'warning');
+    isActionPending = false;
     return;
   }
   const drawnCard = discardPile.pop();
@@ -575,18 +786,28 @@ async function drawFromDiscard() {
     [`hands/${player.playerId}`]: myHand,
     [`handsPublic/${player.playerId}/cardCount`]: myHand.length,
   };
-  await updateGameState(sessionId, updates);
-  showToast(`Picked up: ${drawnCard.rank} of ${drawnCard.suit} 👆`, 'success', 2000);
+  try {
+    await updateGameState(sessionId, updates);
+    showToast(`Picked up: ${drawnCard.rank} of ${drawnCard.suit} 👆`, 'success', 2000);
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to draw card. Please try again.', 'error');
+    isActionPending = false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
 // Discard Card
 // ─────────────────────────────────────────────────────────
 async function discardCard(card) {
-  if (!isMyTurn() || gameState?.turnPhase !== 'discard') return;
+  if (!isMyTurn() || gameState?.turnPhase !== 'discard' || isActionPending) return;
+  isActionPending = true;
 
   const cardIndex = myHand.findIndex(c => c.id === card.id);
-  if (cardIndex === -1) return;
+  if (cardIndex === -1) {
+    isActionPending = false;
+    return;
+  }
 
   myHand.splice(cardIndex, 1);
 
@@ -606,8 +827,16 @@ async function discardCard(card) {
     [`handsPublic/${player.playerId}/cardCount`]: myHand.length,
   };
 
-  await updateGameState(sessionId, updates);
-  document.getElementById('discard-prompt').classList.add('hidden');
+  try {
+    await updateGameState(sessionId, updates);
+    document.getElementById('discard-prompt').classList.add('hidden');
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to discard card. Please try again.', 'error');
+    // Restore card to hand if failed
+    myHand.splice(cardIndex, 0, card);
+    isActionPending = false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -615,7 +844,33 @@ async function discardCard(card) {
 // ─────────────────────────────────────────────────────────
 function openDeclareModal() {
   const secretJoker = gameState?.secretJoker;
-  const result = validateHand(myHand, secretJoker, groups.length > 0 ? groups : null);
+  
+  let declareCard = null;
+  let validationHand = [...myHand];
+  
+  if (myHand.length === 14) {
+    if (selectedCards.size !== 1) {
+      showToast('Select exactly 1 card to discard for your declaration!', 'warning');
+      return;
+    }
+    const declareCardId = Array.from(selectedCards)[0];
+    declareCard = myHand.find(c => c.id === declareCardId);
+    validationHand = myHand.filter(c => c.id !== declareCardId);
+  } else if (myHand.length !== 13) {
+    showToast('You must have 13 or 14 cards to declare!', 'warning');
+    return;
+  }
+
+  // Filter declareCard out of groups if present
+  let validationGroups = null;
+  if (groups.length > 0) {
+    validationGroups = groups.map(g => ({
+      ...g,
+      cards: g.cards.filter(c => c.id !== (declareCard ? declareCard.id : null))
+    })).filter(g => g.cards.length > 0);
+  }
+
+  const result = validateHand(validationHand, secretJoker, validationGroups);
 
   const panel = document.getElementById('declare-panel');
   const confirmBtn = document.getElementById('declare-confirm-btn');
@@ -661,11 +916,22 @@ async function confirmDeclare() {
   document.getElementById('declare-modal').classList.add('hidden');
   showToast('🏆 Declaring! Validating hand...', 'success');
 
+  // Determine declare card and winning hand
+  let declareCard = null;
+  let finalHand = [...myHand];
+  if (myHand.length === 14 && selectedCards.size === 1) {
+    const declareCardId = Array.from(selectedCards)[0];
+    declareCard = myHand.find(c => c.id === declareCardId);
+    finalHand = myHand.filter(c => c.id !== declareCardId);
+  }
+
   const updates = {
     winner: player.playerId,
     winnerName: player.name,
     winnerAvatar: player.avatar,
     gameEndTime: Date.now(),
+    [`hands/${player.playerId}`]: finalHand,
+    discardPile: [...(gameState.discardPile || []), ...(declareCard ? [declareCard] : [])],
   };
   await updateGameState(sessionId, updates);
 }
@@ -709,12 +975,15 @@ document.querySelectorAll('.sort-btn').forEach(btn => {
     btn.classList.add('active');
     btn.setAttribute('aria-pressed', 'true');
     sortMode = btn.dataset.sort;
+    if (sortMode !== 'group') {
+      groups = []; // Reset manual groups
+    }
     renderMyHand();
   });
 });
 
 document.getElementById('sort-toggle-btn').addEventListener('click', () => {
-  const modes = ['suit', 'rank', 'none'];
+  const modes = ['suit', 'rank', 'group', 'none'];
   const next = modes[(modes.indexOf(sortMode) + 1) % modes.length];
   document.querySelector(`.sort-btn[data-sort="${next}"]`)?.click();
 });
@@ -759,17 +1028,22 @@ document.getElementById('rules-close-btn').addEventListener('click', () => {
 });
 
 // ─────────────────────────────────────────────────────────
-// Group Mode (simplified — toggle for future DnD grouping)
+// Grouping and Discard Buttons
 // ─────────────────────────────────────────────────────────
 document.getElementById('group-mode-btn').addEventListener('click', () => {
-  groupMode = !groupMode;
-  const btn = document.getElementById('group-mode-btn');
-  btn.setAttribute('aria-pressed', groupMode);
-  btn.classList.toggle('btn-outline', groupMode);
-  btn.classList.toggle('btn-ghost', !groupMode);
-  showToast(groupMode
-    ? '🗂️ Group Mode: Select cards then use the arrange tool to group them'
-    : 'Group Mode off', 'info', 2500);
+  showToast('Select 2 or more cards and click "Group Selected" to organize them!', 'info', 3000);
+});
+
+document.getElementById('group-cards-btn').addEventListener('click', groupSelectedCards);
+
+document.getElementById('discard-btn').addEventListener('click', () => {
+  if (selectedCards.size !== 1) return;
+  const cardId = Array.from(selectedCards)[0];
+  const card = myHand.find(c => c.id === cardId);
+  if (card) {
+    selectedCards.clear();
+    discardCard(card);
+  }
 });
 
 // ─────────────────────────────────────────────────────────
