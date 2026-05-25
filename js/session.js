@@ -169,14 +169,15 @@ export async function createSession(playerConfigs, options = {}) {
 
   await channel.publish('session-update', session);
 
-  // Subscribe to player-join messages so the host can update state
+  // Subscribe to player-join messages so the host can update state (case-insensitive)
   channel.subscribe('player-join', async (msg) => {
     const { playerId, name, avatar } = msg.data;
     const s = _sessions[sessionId];
-    if (s && s.players[playerId]) {
-      s.players[playerId].joined = true;
-      s.players[playerId].online = true;
-      if (name) s.players[playerId].name = name;
+    const pKey = s ? Object.keys(s.players).find(k => k.toUpperCase() === playerId.toUpperCase()) : null;
+    if (s && pKey) {
+      s.players[pKey].joined = true;
+      s.players[pKey].online = true;
+      if (name) s.players[pKey].name = name;
       storeSession(s);
       await channel.publish('session-update', s);
     }
@@ -185,8 +186,9 @@ export async function createSession(playerConfigs, options = {}) {
   channel.subscribe('player-online', (msg) => {
     const { playerId, online } = msg.data;
     const s = _sessions[sessionId];
-    if (s && s.players[playerId]) {
-      s.players[playerId].online = online;
+    const pKey = s ? Object.keys(s.players).find(k => k.toUpperCase() === playerId.toUpperCase()) : null;
+    if (s && pKey) {
+      s.players[pKey].online = online;
       storeSession(s);
     }
   });
@@ -206,14 +208,15 @@ export async function resumeSessionAsHost(sessionId) {
   const ably    = getAbly();
   const channel = ably.channels.get(channelName(sessionId));
 
-  // Subscribe to player-join messages so the host can update state
+  // Subscribe to player-join messages so the host can update state (case-insensitive)
   channel.subscribe('player-join', async (msg) => {
     const { playerId, name, avatar } = msg.data;
     const s = _sessions[sessionId];
-    if (s && s.players[playerId]) {
-      s.players[playerId].joined = true;
-      s.players[playerId].online = true;
-      if (name) s.players[playerId].name = name;
+    const pKey = s ? Object.keys(s.players).find(k => k.toUpperCase() === playerId.toUpperCase()) : null;
+    if (s && pKey) {
+      s.players[pKey].joined = true;
+      s.players[pKey].online = true;
+      if (name) s.players[pKey].name = name;
       storeSession(s);
       await channel.publish('session-update', s);
     }
@@ -222,8 +225,9 @@ export async function resumeSessionAsHost(sessionId) {
   channel.subscribe('player-online', (msg) => {
     const { playerId, online } = msg.data;
     const s = _sessions[sessionId];
-    if (s && s.players[playerId]) {
-      s.players[playerId].online = online;
+    const pKey = s ? Object.keys(s.players).find(k => k.toUpperCase() === playerId.toUpperCase()) : null;
+    if (s && pKey) {
+      s.players[pKey].online = online;
       storeSession(s);
     }
   });
@@ -254,16 +258,62 @@ export async function joinSession(sessionId, playerId, pin) {
   const ably    = getAbly();
   const channel = ably.channels.get(channelName(sessionId));
 
-  // Request current session state via presence or by publishing a request
+  // Ensure channel is attached first so subscriptions work reliably
+  await channel.attach();
+
+  // Try to find the latest session-update in channel history
+  let session = null;
+  try {
+    const historyPage = await channel.history({ limit: 10 });
+    const latestUpdate = historyPage.items.find(msg => msg.name === 'session-update');
+    if (latestUpdate) {
+      session = latestUpdate.data;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch channel history:', err);
+  }
+
+  // If found in history, validate and resolve immediately
+  if (session && session.players) {
+    const pKey = Object.keys(session.players).find(k => k.toUpperCase() === playerId.toUpperCase());
+    const player = pKey ? session.players[pKey] : null;
+
+    if (!player) {
+      throw new Error('Player ID not found in this session.');
+    }
+    if (player.pin !== pin) {
+      throw new Error('Incorrect PIN.');
+    }
+
+    const playerData = {
+      sessionId,
+      playerId: pKey,
+      name:   player.name,
+      avatar: player.avatar,
+      isHost: player.isHost,
+      slot:   player.slot,
+    };
+    storePlayer(playerData);
+    _sessions[sessionId] = session;
+    storeSession(session);
+
+    // Notify others we joined
+    await channel.publish('player-join', { playerId: pKey, pin, name: undefined, avatar: undefined });
+    return { session, player: playerData };
+  }
+
+  // Fallback to real-time message waiting loop
   return new Promise((resolve, reject) => {
     let resolved = false;
 
     // Listen for session-update (host will send after player-join)
     const unsub = channel.subscribe('session-update', (msg) => {
-      const session = msg.data;
-      if (!session || !session.players) return;
+      const sess = msg.data;
+      if (!sess || !sess.players) return;
 
-      const player = session.players[playerId];
+      const pKey = Object.keys(sess.players).find(k => k.toUpperCase() === playerId.toUpperCase());
+      const player = pKey ? sess.players[pKey] : null;
+
       if (!player) {
         if (!resolved) { resolved = true; unsub(); reject(new Error('Player ID not found in this session.')); }
         return;
@@ -276,19 +326,19 @@ export async function joinSession(sessionId, playerId, pin) {
       // Auth success — store player locally
       const playerData = {
         sessionId,
-        playerId,
+        playerId: pKey,
         name:   player.name,
         avatar: player.avatar,
         isHost: player.isHost,
         slot:   player.slot,
       };
       storePlayer(playerData);
-      _sessions[sessionId] = session;
-      storeSession(session);
+      _sessions[sessionId] = sess;
+      storeSession(sess);
 
       if (!resolved) {
         resolved = true;
-        resolve({ session, player: playerData });
+        resolve({ session: sess, player: playerData });
       }
     });
 
@@ -296,13 +346,17 @@ export async function joinSession(sessionId, playerId, pin) {
     setTimeout(() => {
       if (!resolved) {
         resolved = true;
+        unsub();
         reject(new Error('Session not found or host is offline. Make sure the session ID is correct and the host has the lobby open.'));
       }
     }, 10000);
 
-    // Publish join request (host's listener will respond with session-update)
+    // Publish join request
     channel.publish('player-join', { playerId, pin, name: undefined, avatar: undefined })
-      .catch(reject);
+      .catch((err) => {
+        unsub();
+        reject(err);
+      });
   });
 }
 
