@@ -215,7 +215,15 @@ export async function resumeSessionAsHost(sessionId) {
   const session = await getSession(sessionId);
   if (!session) throw new Error('Session not found in storage');
 
+  // Safety: Auto-join the host on resume
+  const hostPlayer = Object.values(session.players).find(p => p.isHost);
+  if (hostPlayer) {
+    hostPlayer.joined = true;
+    hostPlayer.online = true;
+  }
+
   _sessions[sessionId] = session;
+  storeSession(session);
 
   const ably    = getAbly();
   const channel = ably.channels.get(channelName(sessionId));
