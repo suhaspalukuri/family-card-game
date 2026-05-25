@@ -553,20 +553,24 @@
 
   // ─── Check if returning host with existing session ─────────
   const stored = getStoredSession();
-  if (stored && stored.status === 'waiting') {
-    // Automatically resume and subscribe to channel updates
-    (async () => {
-      try {
-        const session = await resumeSessionAsHost(stored.id);
-        currentSession = session;
-        minPlayers = session.minPlayers;
-        showCreatedPanel(session);
-        unsubscribe = subscribeToSession(session.id, updateStatus);
-        showToast(`Resumed existing session: ${session.id} 🔄`, 'success', 3000);
-      } catch (err) {
-        console.error('Failed to resume session:', err);
-      }
-    })();
+  if (stored) {
+    if (stored.status === 'playing') {
+      window.location.href = `game.html?session=${stored.id}`;
+    } else if (stored.status === 'waiting') {
+      // Automatically resume and subscribe to channel updates
+      (async () => {
+        try {
+          const session = await resumeSessionAsHost(stored.id);
+          currentSession = session;
+          minPlayers = session.minPlayers;
+          showCreatedPanel(session);
+          unsubscribe = subscribeToSession(session.id, updateStatus);
+          showToast(`Resumed existing session: ${session.id} 🔄`, 'success', 3000);
+        } catch (err) {
+          console.error('Failed to resume session:', err);
+        }
+      })();
+    }
   }
 </script>
 </body>

@@ -216,7 +216,7 @@
 
 <script type="module">
 import { getCurrentPlayer, subscribeToGameState, updateGameState, setPlayerOnline,
-         saveGameResult, getSession } from './js/session.js';
+         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js';
 import { sortBySuit, sortByRank, isWildcard } from './js/deck.js';
 import { validateHand, groupLabel, buildChecks } from './js/game-engine.js';
 import { createCardEl, renderHand, renderOpponentPanel, showToast,
@@ -238,6 +238,7 @@ let groupMode     = false;
 let turnTimer     = null;
 let timerSeconds  = 30;
 let unsubscribe   = null;
+let unsubSession  = null;
 let gameStartTime = Date.now();
 
 // ─────────────────────────────────────────────────────────
@@ -267,14 +268,34 @@ async function init() {
   // Subscribe to game state
   unsubscribe = subscribeToGameState(sessionId, onGameStateUpdate);
 
-  // Load session for initial waiting room info
-  const session = await getSession(sessionId);
-  if (session) updateWaitingRoom(session);
+  // Check if the game is already in progress (from history)
+  const latestState = await getLatestGameState(sessionId);
+  if (latestState) {
+    onGameStateUpdate(latestState);
+  } else {
+    // If not running, load session and listen for updates to the waiting room player list
+    const session = await getSession(sessionId);
+    if (session) {
+      updateWaitingRoom(session);
+      // Redirect player if session is already playing
+      if (session.status === 'playing' && session.gameState) {
+        const state = await getLatestGameState(sessionId);
+        if (state) onGameStateUpdate(state);
+      }
+    }
+    unsubSession = subscribeToSession(sessionId, (sess) => {
+      updateWaitingRoom(sess);
+    });
+  }
 
   // Mark offline on unload
   window.addEventListener('beforeunload', () => {
     setPlayerOnline(sessionId, player.playerId, false);
     if (unsubscribe) unsubscribe();
+    if (unsubSession) {
+      unsubSession();
+      unsubSession = null;
+    }
   });
 }
 
@@ -306,6 +327,10 @@ function onGameStateUpdate(state) {
 
   // If game just started, show game board
   if (state.hands) {
+    if (unsubSession) {
+      unsubSession();
+      unsubSession = null;
+    }
     document.getElementById('waiting-room').classList.add('hidden');
     document.getElementById('game-page').classList.remove('hidden');
 

@@ -131,7 +131,7 @@ export async function createSession(playerConfigs, options = {}) {
   const minPlayers = options.minPlayers || 2;
   const players    = {};
 
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < minPlayers; i++) {
     const cfg   = playerConfigs[i] || {};
     const slot  = i + 1;
     const pid   = generatePlayerId(slot);
@@ -471,6 +471,23 @@ export async function setPlayerOnline(sessionId, playerId, online) {
   const ably    = getAbly();
   const channel = ably.channels.get(channelName(sessionId));
   await channel.publish('player-online', { playerId, online }).catch(() => {});
+}
+
+// ─────────────────────────────────────────────────────────
+// getLatestGameState — Fetch the latest game state from Ably history
+// ─────────────────────────────────────────────────────────
+export async function getLatestGameState(sessionId) {
+  try {
+    const ably = getAbly();
+    const channel = ably.channels.get(channelName(sessionId));
+    await channel.attach();
+    const historyPage = await channel.history({ limit: 10 });
+    const latestState = historyPage.items.find(msg => msg.name === 'game-state');
+    return latestState ? latestState.data : null;
+  } catch (err) {
+    console.warn('Failed to fetch game state history:', err);
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
