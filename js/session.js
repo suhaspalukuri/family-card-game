@@ -145,9 +145,21 @@ export async function createSession(playerConfigs, options = {}) {
       avatar:   AVATARS[i],
       slot,
       isHost,
-      joined:   false,
-      online:   false,
+      joined:   isHost,
+      online:   isHost,
     };
+
+    if (isHost) {
+      const playerData = {
+        sessionId,
+        playerId: pid,
+        name:     players[pid].name,
+        avatar:   players[pid].avatar,
+        isHost:   true,
+        slot:     1,
+      };
+      storePlayer(playerData);
+    }
   }
 
   const session = {
