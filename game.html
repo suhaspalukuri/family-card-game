@@ -216,7 +216,7 @@
 
 <script type="module">
 import { getCurrentPlayer, subscribeToGameState, updateGameState, setPlayerOnline,
-         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=4';
+         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=5';
 import { sortBySuit, sortByRank, isWildcard } from './js/deck.js';
 import { validateHand, groupLabel, buildChecks } from './js/game-engine.js';
 import { createCardEl, renderHand, renderOpponentPanel, showToast,
@@ -268,24 +268,41 @@ async function init() {
   // Subscribe to game state
   unsubscribe = subscribeToGameState(sessionId, onGameStateUpdate);
 
-  // Check if the game is already in progress (from history)
-  const latestState = await getLatestGameState(sessionId);
-  if (latestState) {
-    onGameStateUpdate(latestState);
-  } else {
-    // If not running, load session and listen for updates to the waiting room player list
-    const session = await getSession(sessionId);
-    if (session) {
-      updateWaitingRoom(session);
-      // Redirect player if session is already playing
-      if (session.status === 'playing' && session.gameState) {
-        const state = await getLatestGameState(sessionId);
-        if (state) onGameStateUpdate(state);
+  // Check if we have a locally cached game state first (extremely reliable for host/reloads)
+  let initialLoaded = false;
+  const cachedState = localStorage.getItem('rummy_game_state');
+  if (cachedState) {
+    try {
+      const state = JSON.parse(cachedState);
+      if (state && state.sessionId === sessionId && state.hands && state.hands[player.playerId]) {
+        onGameStateUpdate(state);
+        initialLoaded = true;
       }
+    } catch (e) {
+      console.warn('Failed to parse cached game state:', e);
     }
-    unsubSession = subscribeToSession(sessionId, (sess) => {
-      updateWaitingRoom(sess);
-    });
+  }
+
+  if (!initialLoaded) {
+    // Check if the game is already in progress (from history)
+    const latestState = await getLatestGameState(sessionId);
+    if (latestState) {
+      onGameStateUpdate(latestState);
+    } else {
+      // If not running, load session and listen for updates to the waiting room player list
+      const session = await getSession(sessionId);
+      if (session) {
+        updateWaitingRoom(session);
+        // Redirect player if session is already playing
+        if (session.status === 'playing' && session.gameState) {
+          const state = await getLatestGameState(sessionId);
+          if (state) onGameStateUpdate(state);
+        }
+      }
+      unsubSession = subscribeToSession(sessionId, (sess) => {
+        updateWaitingRoom(sess);
+      });
+    }
   }
 
   // Mark offline on unload
@@ -324,6 +341,9 @@ function updateWaitingRoom(session) {
 function onGameStateUpdate(state) {
   if (!state) return;
   gameState = state;
+
+  // Save to local storage cache for recovery on refresh
+  localStorage.setItem('rummy_game_state', JSON.stringify(state));
 
   // If game just started, show game board
   if (state.hands) {

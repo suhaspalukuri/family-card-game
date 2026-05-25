@@ -414,6 +414,7 @@ export async function setGameState(sessionId, gameState) {
   // (Ably has no built-in auth/data isolation on free plan, so we publish
   //  all hands in the game-state and let each client read only their own)
   _gameStates[sessionId] = gameState;
+  localStorage.setItem('rummy_game_state', JSON.stringify(gameState));
 
   // Update session status
   const session = _sessions[sessionId];

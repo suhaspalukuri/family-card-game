@@ -280,7 +280,7 @@
 <script type="module">
   import { createSession, resumeSessionAsHost, subscribeToSession, setGameState, getCurrentPlayer, getStoredSession,
            isAblyConfigured }
-    from './js/session.js?v=4';
+    from './js/session.js?v=5';
   import { dealCards } from './js/deck.js';
   import { showToast, copyToClipboard, formatDate, escHtml } from './js/ui.js';
 
@@ -513,6 +513,7 @@
       });
 
       const gameState = {
+        sessionId:    currentSession.id,
         secretJoker,
         drawPile,
         discardPile,
@@ -549,6 +550,7 @@
     createPanel.style.display  = 'grid';
     currentSession = null;
     localStorage.removeItem('rummy_session'); // Clear stored session so it doesn't auto-resume next time
+    localStorage.removeItem('rummy_game_state'); // Clear cached game state too
   });
 
   // ─── Check if returning host with existing session ─────────
