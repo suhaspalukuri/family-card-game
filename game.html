@@ -129,10 +129,10 @@
         <button class="btn btn-outline btn-sm hidden" id="group-cards-btn">
           🔗 Group Selected
         </button>
-        <button class="btn btn-primary btn-sm" id="discard-btn" disabled>
+        <button class="btn btn-primary btn-sm hidden" id="discard-btn" disabled>
           📤 Discard Selected
         </button>
-        <button class="btn btn-declare" id="declare-btn" disabled
+        <button class="btn btn-declare hidden" id="declare-btn" disabled
           aria-label="Declare your hand">
           🏆 Declare!
         </button>
@@ -409,12 +409,29 @@ function updateActionButtons() {
 
   // Discard Selected Button
   if (discardBtn) {
-    discardBtn.disabled = !isMy || phase !== 'discard' || selectedCards.size !== 1;
+    const showDiscard = isMy && phase === 'discard' && selectedCards.size === 1;
+    if (showDiscard) {
+      discardBtn.classList.remove('hidden');
+      discardBtn.disabled = false;
+    } else {
+      discardBtn.classList.add('hidden');
+      discardBtn.disabled = true;
+    }
   }
 
   // Declare Button
   if (declareBtn) {
-    declareBtn.disabled = !isMy || phase !== 'discard' || (myHand.length !== 13 && myHand.length !== 14);
+    const showDeclare = isMy && phase === 'discard' && (
+      (myHand.length === 13) ||
+      (myHand.length === 14 && selectedCards.size === 1)
+    );
+    if (showDeclare) {
+      declareBtn.classList.remove('hidden');
+      declareBtn.disabled = false;
+    } else {
+      declareBtn.classList.add('hidden');
+      declareBtn.disabled = true;
+    }
   }
 
   // Group Selected Button (shows only when 2 or more cards are selected)
@@ -728,9 +745,6 @@ function updateTurnUI(state) {
     discardPrompt.classList.add('hidden');
   }
 
-  // Declare button
-  document.getElementById('declare-btn').disabled =
-    !isMy || state.turnPhase !== 'discard' || myHand.length !== 13;
 }
 
 function isMyTurn() {
