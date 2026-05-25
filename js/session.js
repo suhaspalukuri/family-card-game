@@ -36,7 +36,7 @@ function getAbly() {
     _ably = new window.Ably.Realtime({
       key: ABLY_API_KEY,
       clientId: getOrCreateClientId(),
-      echoMessages: false,
+      echoMessages: true,
     });
   }
   return _ably;
