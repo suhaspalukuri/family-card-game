@@ -280,7 +280,7 @@
 <script type="module">
   import { createSession, resumeSessionAsHost, subscribeToSession, setGameState, getCurrentPlayer, getStoredSession,
            isAblyConfigured }
-    from './js/session.js?v=9';
+    from './js/session.js?v=10';
   import { dealCards } from './js/deck.js';
   import { showToast, copyToClipboard, formatDate, escHtml } from './js/ui.js';
 
@@ -534,6 +534,11 @@
       // Host goes to game page too if they're player 1
       const hostPlayer = getCurrentPlayer();
       if (hostPlayer && hostPlayer.sessionId === currentSession.id) {
+        try {
+          window.name = JSON.stringify({ rummy_game_state: gameState });
+        } catch (e) {
+          console.warn('Failed to write to window.name:', e);
+        }
         setTimeout(() => window.location.href = `game.html?session=${currentSession.id}`, 1000);
       }
     } catch (err) {
@@ -553,6 +558,7 @@
       localStorage.removeItem('rummy_session'); // Clear stored session so it doesn't auto-resume next time
       localStorage.removeItem('rummy_game_state'); // Clear cached game state too
       localStorage.removeItem('rummy_player'); // Clear host player credentials
+      window.name = ''; // Clear window.name state too
     } catch (e) {
       console.warn('LocalStorage not available to clear session:', e);
     }

@@ -553,6 +553,24 @@ export async function getLatestGameState(sessionId) {
   }
 }
 
+export async function requestGameState(sessionId, playerId) {
+  const ably = getAbly();
+  const channel = ably.channels.get(channelName(sessionId));
+  await channel.publish('request-game-state', { playerId });
+}
+
+export function subscribeToStateRequests(sessionId, callback) {
+  const ably = getAbly();
+  const channel = ably.channels.get(channelName(sessionId));
+  const listener = (msg) => {
+    if (msg.data) {
+      callback(msg.data);
+    }
+  };
+  channel.subscribe('request-game-state', listener);
+  return () => channel.unsubscribe('request-game-state', listener);
+}
+
 // ─────────────────────────────────────────────────────────
 // isAblyConfigured — Check if Ably API key is set
 // ─────────────────────────────────────────────────────────

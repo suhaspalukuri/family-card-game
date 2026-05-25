@@ -223,11 +223,12 @@
 
 <script type="module">
 import { getCurrentPlayer, subscribeToGameState, updateGameState, setPlayerOnline,
-         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=9';
-import { sortBySuit, sortByRank, isWildcard } from './js/deck.js';
-import { validateHand, groupLabel, buildChecks, findBestGrouping } from './js/game-engine.js';
+         saveGameResult, getSession, subscribeToSession, getLatestGameState,
+         requestGameState, subscribeToStateRequests } from './js/session.js?v=10';
+import { sortBySuit, sortByRank, isWildcard } from './js/deck.js?v=10';
+import { validateHand, groupLabel, buildChecks, findBestGrouping } from './js/game-engine.js?v=10';
 import { createCardEl, renderHand, renderOpponentPanel, showToast,
-         launchConfetti, updateTimerRing, escHtml, copyToClipboard } from './js/ui.js';
+         launchConfetti, updateTimerRing, escHtml, copyToClipboard } from './js/ui.js?v=10';
 
 // ─────────────────────────────────────────────────────────
 // State
@@ -248,6 +249,24 @@ let unsubscribe   = null;
 let unsubSession  = null;
 let gameStartTime = Date.now();
 let isActionPending = false;
+let actionTimeout = null;
+
+function setActionPending(pending) {
+  isActionPending = pending;
+  if (actionTimeout) {
+    clearTimeout(actionTimeout);
+    actionTimeout = null;
+  }
+  if (pending) {
+    actionTimeout = setTimeout(() => {
+      if (isActionPending) {
+        isActionPending = false;
+        console.warn('Action timed out. Action lock reset.');
+        showToast('Connection is slow. Please try again.', 'warning');
+      }
+    }, 6000);
+  }
+}
 
 // ─────────────────────────────────────────────────────────
 // Auth Guard
@@ -278,22 +297,54 @@ async function init() {
 
   // Check if we have a locally cached game state first (extremely reliable for host/reloads)
   let initialLoaded = false;
-  let cachedState = null;
-  try {
-    cachedState = localStorage.getItem('rummy_game_state');
-  } catch (e) {
-    console.warn('LocalStorage not available:', e);
-  }
-  if (cachedState) {
+
+  // Try window.name first (survives refreshes and redirects in private tabs)
+  if (window.name) {
     try {
-      const state = JSON.parse(cachedState);
-      if (state && state.sessionId === sessionId && state.hands && state.hands[player.playerId]) {
-        onGameStateUpdate(state);
+      const parsed = JSON.parse(window.name);
+      if (parsed && parsed.rummy_game_state && parsed.rummy_game_state.sessionId === sessionId) {
+        console.log('Restored game state from window.name');
+        onGameStateUpdate(parsed.rummy_game_state);
         initialLoaded = true;
       }
     } catch (e) {
-      console.warn('Failed to parse cached game state:', e);
+      console.warn('Failed to parse window.name:', e);
     }
+  }
+
+  if (!initialLoaded) {
+    let cachedState = null;
+    try {
+      cachedState = localStorage.getItem('rummy_game_state');
+    } catch (e) {
+      console.warn('LocalStorage not available:', e);
+    }
+    if (cachedState) {
+      try {
+        const state = JSON.parse(cachedState);
+        if (state && state.sessionId === sessionId && state.hands && state.hands[player.playerId]) {
+          onGameStateUpdate(state);
+          initialLoaded = true;
+        }
+      } catch (e) {
+        console.warn('Failed to parse cached game state:', e);
+      }
+    }
+  }
+
+  // Subscribe to game state requests (Host only)
+  let unsubRequests = null;
+  if (player.isHost) {
+    unsubRequests = subscribeToStateRequests(sessionId, async (data) => {
+      if (gameState && player.isHost) {
+        console.log(`Received request-game-state from ${data.playerId}. Broadcasting current state...`);
+        try {
+          await setGameState(sessionId, gameState);
+        } catch (e) {
+          console.warn('Failed to broadcast game state on request:', e);
+        }
+      }
+    });
   }
 
   if (!initialLoaded) {
@@ -312,11 +363,28 @@ async function init() {
           if (state) onGameStateUpdate(state);
         }
       }
-      unsubSession = subscribeToSession(sessionId, (sess) => {
+      unsubSession = subscribeToSession(sessionId, async (sess) => {
         updateWaitingRoom(sess);
+        if (sess.status === 'playing' && !gameState) {
+          const state = await getLatestGameState(sessionId);
+          if (state) {
+            onGameStateUpdate(state);
+          } else {
+            console.log('Session status is playing, but no history state. Requesting state from host...');
+            requestGameState(sessionId, player.playerId).catch(console.error);
+          }
+        }
       });
     }
   }
+
+  // If we still don't have game state after 1.5 seconds and we aren't the host, request it from the host
+  setTimeout(() => {
+    if (!gameState && !player.isHost) {
+      console.log('No game state loaded yet. Sending sync request to host...');
+      requestGameState(sessionId, player.playerId).catch(console.error);
+    }
+  }, 1500);
 
   // Mark offline on unload
   window.addEventListener('beforeunload', () => {
@@ -325,6 +393,10 @@ async function init() {
     if (unsubSession) {
       unsubSession();
       unsubSession = null;
+    }
+    if (unsubRequests) {
+      unsubRequests();
+      unsubRequests = null;
     }
   });
 }
@@ -354,10 +426,17 @@ function updateWaitingRoom(session) {
 function onGameStateUpdate(state) {
   if (!state) return;
   gameState = state;
-  isActionPending = false;
+  setActionPending(false);
   
   if (state.currentTurnPlayerId !== player.playerId) {
     selectedCards.clear();
+  }
+
+  // Save to window.name cache (survives refreshes and private browsing navigation)
+  try {
+    window.name = JSON.stringify({ rummy_game_state: state });
+  } catch (e) {
+    console.warn('window.name write blocked:', e);
   }
 
   // Save to local storage cache for recovery on refresh
@@ -531,6 +610,10 @@ function renderMyHand() {
         }
         
         el.addEventListener('click', () => onCardClick(card, el));
+        el.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          onCardClick(card, el);
+        }, { passive: false });
         el.addEventListener('dblclick', () => {
           if (isMyTurn() && gameState?.turnPhase === 'discard') {
             selectedCards.clear();
@@ -553,6 +636,10 @@ function renderMyHand() {
       el.style.animationDelay = `${i * 30}ms`;
       el.classList.add('card-dealing');
       el.addEventListener('click', () => onCardClick(card, el));
+      el.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        onCardClick(card, el);
+      }, { passive: false });
       el.addEventListener('dblclick', () => {
         if (isMyTurn() && gameState?.turnPhase === 'discard') {
           selectedCards.clear();
@@ -756,11 +843,11 @@ function isMyTurn() {
 // ─────────────────────────────────────────────────────────
 async function drawFromDeck() {
   if (!isMyTurn() || gameState?.turnPhase !== 'draw' || isActionPending) return;
-  isActionPending = true;
+  setActionPending(true);
   const drawPile = [...(gameState.drawPile || [])];
   if (drawPile.length === 0) {
     showToast('Draw pile is empty!', 'warning');
-    isActionPending = false;
+    setActionPending(false);
     return;
   }
   const drawnCard = drawPile.pop();
@@ -778,17 +865,17 @@ async function drawFromDeck() {
   } catch (err) {
     console.error(err);
     showToast('Failed to draw card. Please try again.', 'error');
-    isActionPending = false;
+    setActionPending(false);
   }
 }
 
 async function drawFromDiscard() {
   if (!isMyTurn() || gameState?.turnPhase !== 'draw' || isActionPending) return;
-  isActionPending = true;
+  setActionPending(true);
   const discardPile = [...(gameState.discardPile || [])];
   if (discardPile.length === 0) {
     showToast('Discard pile is empty!', 'warning');
-    isActionPending = false;
+    setActionPending(false);
     return;
   }
   const drawnCard = discardPile.pop();
@@ -806,7 +893,7 @@ async function drawFromDiscard() {
   } catch (err) {
     console.error(err);
     showToast('Failed to draw card. Please try again.', 'error');
-    isActionPending = false;
+    setActionPending(false);
   }
 }
 
@@ -815,11 +902,11 @@ async function drawFromDiscard() {
 // ─────────────────────────────────────────────────────────
 async function discardCard(card) {
   if (!isMyTurn() || gameState?.turnPhase !== 'discard' || isActionPending) return;
-  isActionPending = true;
+  setActionPending(true);
 
   const cardIndex = myHand.findIndex(c => c.id === card.id);
   if (cardIndex === -1) {
-    isActionPending = false;
+    setActionPending(false);
     return;
   }
 
@@ -849,7 +936,7 @@ async function discardCard(card) {
     showToast('Failed to discard card. Please try again.', 'error');
     // Restore card to hand if failed
     myHand.splice(cardIndex, 0, card);
-    isActionPending = false;
+    setActionPending(false);
   }
 }
 
@@ -1005,13 +1092,23 @@ document.getElementById('sort-toggle-btn').addEventListener('click', () => {
 // ─────────────────────────────────────────────────────────
 // Pile Interactions
 // ─────────────────────────────────────────────────────────
-document.getElementById('draw-pile').addEventListener('click', drawFromDeck);
-document.getElementById('draw-pile').addEventListener('keydown', e => {
+const drawPileEl = document.getElementById('draw-pile');
+drawPileEl.addEventListener('click', drawFromDeck);
+drawPileEl.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  drawFromDeck();
+}, { passive: false });
+drawPileEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drawFromDeck(); }
 });
 
-document.getElementById('discard-pile').addEventListener('click', drawFromDiscard);
-document.getElementById('discard-pile').addEventListener('keydown', e => {
+const discardPileEl = document.getElementById('discard-pile');
+discardPileEl.addEventListener('click', drawFromDiscard);
+discardPileEl.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  drawFromDiscard();
+}, { passive: false });
+discardPileEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drawFromDiscard(); }
 });
 
