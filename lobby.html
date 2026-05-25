@@ -278,7 +278,7 @@
 </div>
 
 <script type="module">
-  import { createSession, subscribeToSession, setGameState, getCurrentPlayer, getStoredSession,
+  import { createSession, resumeSessionAsHost, subscribeToSession, setGameState, getCurrentPlayer, getStoredSession,
            isAblyConfigured }
     from './js/session.js';
   import { dealCards } from './js/deck.js';
@@ -548,13 +548,25 @@
     createdPanel.style.display = 'none';
     createPanel.style.display  = 'grid';
     currentSession = null;
+    localStorage.removeItem('rummy_session'); // Clear stored session so it doesn't auto-resume next time
   });
 
   // ─── Check if returning host with existing session ─────────
   const stored = getStoredSession();
   if (stored && stored.status === 'waiting') {
-    // Offer to continue
-    showToast(`Found existing session ${stored.id}. Scroll down if you want to resume.`, 'info', 5000);
+    // Automatically resume and subscribe to channel updates
+    (async () => {
+      try {
+        const session = await resumeSessionAsHost(stored.id);
+        currentSession = session;
+        minPlayers = session.minPlayers;
+        showCreatedPanel(session);
+        unsubscribe = subscribeToSession(session.id, updateStatus);
+        showToast(`Resumed existing session: ${session.id} 🔄`, 'success', 3000);
+      } catch (err) {
+        console.error('Failed to resume session:', err);
+      }
+    })();
   }
 </script>
 </body>

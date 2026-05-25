@@ -66,7 +66,7 @@ function generateSessionId() {
 function generatePlayerId(slot) {
   const adj  = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-  return `${adj}${noun}${slot}`;
+  return `${adj}${noun}${slot}`.toUpperCase();
 }
 
 function generatePin() {
@@ -190,6 +190,46 @@ export async function createSession(playerConfigs, options = {}) {
       storeSession(s);
     }
   });
+
+  return session;
+}
+
+// ─────────────────────────────────────────────────────────
+// resumeSessionAsHost — Restore session & listen for joins
+// ─────────────────────────────────────────────────────────
+export async function resumeSessionAsHost(sessionId) {
+  const session = await getSession(sessionId);
+  if (!session) throw new Error('Session not found in storage');
+
+  _sessions[sessionId] = session;
+
+  const ably    = getAbly();
+  const channel = ably.channels.get(channelName(sessionId));
+
+  // Subscribe to player-join messages so the host can update state
+  channel.subscribe('player-join', async (msg) => {
+    const { playerId, name, avatar } = msg.data;
+    const s = _sessions[sessionId];
+    if (s && s.players[playerId]) {
+      s.players[playerId].joined = true;
+      s.players[playerId].online = true;
+      if (name) s.players[playerId].name = name;
+      storeSession(s);
+      await channel.publish('session-update', s);
+    }
+  });
+
+  channel.subscribe('player-online', (msg) => {
+    const { playerId, online } = msg.data;
+    const s = _sessions[sessionId];
+    if (s && s.players[playerId]) {
+      s.players[playerId].online = online;
+      storeSession(s);
+    }
+  });
+
+  // Broadcast current session state to any waiting clients
+  await channel.publish('session-update', session);
 
   return session;
 }
