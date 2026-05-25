@@ -280,7 +280,7 @@
 <script type="module">
   import { createSession, resumeSessionAsHost, subscribeToSession, setGameState, getCurrentPlayer, getStoredSession,
            isAblyConfigured }
-    from './js/session.js?v=6';
+    from './js/session.js?v=7';
   import { dealCards } from './js/deck.js';
   import { showToast, copyToClipboard, formatDate, escHtml } from './js/ui.js';
 
@@ -349,7 +349,7 @@
       unsubscribe = subscribeToSession(session.id, updateStatus);
     } catch (err) {
       console.error(err);
-      showToast('Failed to create session. Check Firebase config.', 'error', 5000);
+      showToast('Failed to create session: ' + (err.message || err), 'error', 5000);
     } finally {
       setLoading(false);
     }
