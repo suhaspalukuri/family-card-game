@@ -1,0 +1,436 @@
+/* ===========================
+   CARDS.CSS — Playing Card Components
+   =========================== */
+
+/* === Card Dimensions === */
+:root {
+  --card-w: 64px;
+  --card-h: 96px;
+  --card-w-sm: 48px;
+  --card-h-sm: 72px;
+  --card-w-lg: 80px;
+  --card-h-lg: 120px;
+  --card-radius: 8px;
+}
+
+/* === Base Card === */
+.card {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: var(--card-w);
+  height: var(--card-h);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 4px;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  transition:
+    transform var(--transition-base),
+    box-shadow var(--transition-base),
+    outline var(--transition-fast);
+  flex-shrink: 0;
+  font-family: var(--font-sans);
+  font-weight: 700;
+}
+
+.card:hover {
+  transform: translateY(-8px) scale(1.03);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+  z-index: 10;
+}
+
+.card.selected {
+  transform: translateY(-16px) scale(1.05);
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.7), var(--shadow-gold);
+  z-index: 20;
+}
+
+.card.in-sequence {
+  outline: 2px solid var(--color-success);
+  outline-offset: 1px;
+}
+
+.card.in-triplet {
+  outline: 2px solid var(--color-info);
+  outline-offset: 1px;
+}
+
+.card.joker-used {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 1px;
+}
+
+/* === Card Suit Colors === */
+.card[data-suit="hearts"],
+.card[data-suit="diamonds"] {
+  color: var(--color-red);
+}
+
+.card[data-suit="spades"],
+.card[data-suit="clubs"] {
+  color: #1A1A1A;
+}
+
+.card[data-suit="joker"] {
+  color: var(--color-gold-dark);
+}
+
+/* === Card Content === */
+.card-corner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 1px;
+}
+
+.card-corner.bottom {
+  transform: rotate(180deg);
+}
+
+.card-rank {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.card-suit-small {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.card-suit-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 28px;
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+/* === Joker Card === */
+.card[data-suit="joker"] {
+  background: linear-gradient(135deg, #FFF9EE, #FFF0C8);
+  border-color: var(--color-gold);
+  color: var(--color-gold-dark);
+}
+
+.card[data-suit="joker"] .card-rank {
+  font-size: 8px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.card[data-suit="joker"] .card-suit-center {
+  font-size: 24px;
+  opacity: 0.6;
+}
+
+.joker-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--color-gold-dark);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* === Card Back === */
+.card-back {
+  width: var(--card-w);
+  height: var(--card-h);
+  background: linear-gradient(135deg, #1A3A5C 0%, #0D2240 40%, #1A3A5C 100%);
+  border-radius: var(--card-radius);
+  border: 1px solid rgba(255,255,255,0.15);
+  box-shadow: var(--card-shadow);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.card-back::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(201, 168, 76, 0.4);
+  border-radius: calc(var(--card-radius) - 3px);
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(201, 168, 76, 0.05) 0px,
+    rgba(201, 168, 76, 0.05) 2px,
+    transparent 2px,
+    transparent 8px
+  );
+}
+
+.card-back::after {
+  content: '♠';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 22px;
+  color: rgba(201, 168, 76, 0.5);
+}
+
+/* === Card Sizes === */
+.card-sm {
+  width: var(--card-w-sm);
+  height: var(--card-h-sm);
+}
+
+.card-sm .card-rank { font-size: 10px; }
+.card-sm .card-suit-small { font-size: 8px; }
+.card-sm .card-suit-center { font-size: 20px; }
+
+.card-back-sm {
+  width: var(--card-w-sm);
+  height: var(--card-h-sm);
+}
+.card-back-sm::after { font-size: 16px; }
+
+.card-lg {
+  width: var(--card-w-lg);
+  height: var(--card-h-lg);
+}
+
+.card-lg .card-rank { font-size: 16px; }
+.card-lg .card-suit-small { font-size: 13px; }
+.card-lg .card-suit-center { font-size: 36px; }
+
+/* === Card Hand (Fan Layout) === */
+.hand-container {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+  padding: 20px 12px 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-height: calc(var(--card-h) + 32px);
+  gap: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-bg-raised) transparent;
+}
+
+.hand-container .card {
+  margin-left: -18px;
+  transition:
+    transform var(--transition-base),
+    box-shadow var(--transition-base),
+    margin var(--transition-base);
+}
+
+.hand-container .card:first-child {
+  margin-left: 0;
+}
+
+.hand-container .card:hover,
+.hand-container .card.selected {
+  margin-left: -10px;
+}
+
+.hand-container .card:hover ~ .card {
+  margin-left: -10px;
+}
+
+/* === Secret Joker Display === */
+.secret-joker-card {
+  position: relative;
+}
+
+.secret-joker-card::before {
+  content: 'WILDCARD';
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: var(--color-gold);
+  white-space: nowrap;
+  background: rgba(201, 168, 76, 0.1);
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(201, 168, 76, 0.3);
+}
+
+/* === Discard Pile === */
+.discard-pile {
+  position: relative;
+  cursor: pointer;
+}
+
+.discard-pile:hover .card {
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6), 0 0 12px rgba(74, 171, 219, 0.3);
+  border-color: var(--color-info);
+}
+
+/* === Draw Pile === */
+.draw-pile {
+  position: relative;
+  cursor: pointer;
+}
+
+.draw-pile .card-back {
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+}
+
+.draw-pile:hover .card-back {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+}
+
+.draw-pile-count {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* === Opponent Card Row === */
+.opponent-hand {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.opponent-hand .card-back {
+  margin-left: -24px;
+}
+
+.opponent-hand .card-back:first-child {
+  margin-left: 0;
+}
+
+/* === Card Animations === */
+@keyframes card-deal {
+  from {
+    opacity: 0;
+    transform: translateY(-80px) scale(0.6) rotate(-10deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes card-draw {
+  from {
+    opacity: 0;
+    transform: scale(0.7) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes card-discard {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.7) translateY(-20px);
+  }
+}
+
+@keyframes card-flip {
+  0%   { transform: rotateY(0deg); }
+  50%  { transform: rotateY(90deg); }
+  100% { transform: rotateY(0deg); }
+}
+
+.card-dealing {
+  animation: card-deal 0.4s var(--transition-bounce) forwards;
+}
+
+.card-drawing {
+  animation: card-draw 0.3s ease-out forwards;
+}
+
+.card-discarding {
+  animation: card-discard 0.25s ease-in forwards;
+}
+
+.card-flipping {
+  animation: card-flip 0.5s ease-in-out forwards;
+}
+
+/* === Group Highlight === */
+.group-container {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-lg);
+  padding: 8px 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  position: relative;
+}
+
+.group-container.pure-sequence {
+  border-color: rgba(76, 175, 119, 0.4);
+  background: rgba(76, 175, 119, 0.05);
+}
+
+.group-container.impure-sequence {
+  border-color: rgba(74, 171, 219, 0.4);
+  background: rgba(74, 171, 219, 0.05);
+}
+
+.group-container.triplet {
+  border-color: rgba(240, 168, 64, 0.4);
+  background: rgba(240, 168, 64, 0.05);
+}
+
+.group-label {
+  position: absolute;
+  top: -10px;
+  left: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+.group-label.pure  { background: rgba(76, 175, 119, 0.8); color: white; }
+.group-label.impure { background: rgba(74, 171, 219, 0.8); color: white; }
+.group-label.triplet-label { background: rgba(240, 168, 64, 0.8); color: white; }
+
+/* === Table Felt Center === */
+.felt-area {
+  background: radial-gradient(ellipse at center, #1A4A2A 0%, #0E2A17 70%, #081A0E 100%);
+  border-radius: var(--radius-xl);
+  border: 2px solid rgba(255,255,255,0.07);
+  box-shadow: inset 0 2px 16px rgba(0,0,0,0.5), inset 0 -2px 8px rgba(255,255,255,0.03);
+  position: relative;
+  overflow: hidden;
+}
+
+.felt-area::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 30% 40%, rgba(255,255,255,0.03) 0%, transparent 60%);
+  pointer-events: none;
+}

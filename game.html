@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0D1B2A" />
+  <title>Game — Rummy Royale</title>
+  <meta name="description" content="Play your Rummy Royale game" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🃏</text></svg>" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/cards.css" />
+  <link rel="stylesheet" href="css/game.css" />
+  <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+</head>
+<body>
+<div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+<!-- ═══════════════════════════════════
+  WAITING ROOM (shown before game starts)
+═══════════════════════════════════ -->
+<div id="waiting-room" class="waiting-room">
+  <div class="waiting-content glass" style="border-radius:var(--radius-2xl);padding:3rem 2rem">
+    <div class="waiting-spinner"></div>
+    <h2 class="waiting-title">Waiting for Host</h2>
+    <p class="waiting-subtitle" id="waiting-subtitle">
+      You've joined successfully! The host will start the game soon.
+    </p>
+    <div class="players-joined-list" id="players-joined-list"></div>
+    <div style="margin-top:1.5rem">
+      <a href="index.html" class="btn btn-ghost btn-sm">← Leave</a>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+  MAIN GAME PAGE
+═══════════════════════════════════ -->
+<div class="game-page hidden" id="game-page">
+
+  <!-- HUD Bar -->
+  <header class="game-hud" role="banner">
+    <div class="hud-logo">
+      <span>🃏</span>
+      <span class="text-gold-shimmer" style="font-size:1rem">Rummy Royale</span>
+    </div>
+
+    <div class="hud-game-info">
+      <div class="hud-badge">
+        <div class="hud-badge-dot" id="connection-dot"></div>
+        <span id="connection-status">Connected</span>
+      </div>
+      <div class="hud-badge" id="turn-indicator">
+        <span id="whose-turn-text">–</span>
+      </div>
+      <!-- Timer Ring -->
+      <div class="turn-timer" id="turn-timer" style="display:none">
+        <div class="timer-ring" role="timer" aria-label="Turn timer">
+          <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+            <circle cx="16" cy="16" r="13" />
+            <circle class="timer-progress" cx="16" cy="16" r="13"
+              stroke-dasharray="81.68" stroke-dashoffset="0" />
+          </svg>
+          <div class="timer-number" id="timer-number">30</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-actions">
+      <button class="btn btn-ghost btn-sm" id="sort-toggle-btn" aria-label="Sort cards">
+        🔀 Sort
+      </button>
+      <button class="btn btn-ghost btn-sm" id="rules-btn" aria-label="View rules">
+        📋 Rules
+      </button>
+      <a href="history.html" class="btn btn-ghost btn-sm">📊</a>
+    </div>
+  </header>
+
+  <!-- Main Board -->
+  <main class="game-board" id="game-board" aria-label="Game Board">
+
+    <!-- Opponents Zone -->
+    <section class="opponents-zone" id="opponents-zone" aria-label="Other players"></section>
+
+    <!-- Center Felt Area -->
+    <section class="center-area felt-area" id="center-area" aria-label="Card piles">
+      <!-- Draw Pile -->
+      <div class="pile-group">
+        <div class="pile-label">Draw Pile</div>
+        <div class="draw-pile" id="draw-pile" role="button" tabindex="0"
+          aria-label="Draw from deck">
+          <div class="card-back" id="draw-pile-top"></div>
+          <div class="draw-pile-count" id="draw-pile-count">– cards</div>
+        </div>
+      </div>
+
+      <!-- Discard Pile -->
+      <div class="pile-group">
+        <div class="pile-label">Discard Pile</div>
+        <div class="discard-pile" id="discard-pile" role="button" tabindex="0"
+          aria-label="Pick up from discard pile">
+          <div id="discard-pile-top"></div>
+        </div>
+      </div>
+
+      <!-- Secret Joker -->
+      <div class="joker-info">
+        <div class="joker-info-label">🌟 Secret Joker</div>
+        <div class="secret-joker-card" id="secret-joker-display"></div>
+        <div style="font-size:var(--text-xs);color:var(--color-text-secondary);text-align:center;max-width:90px">
+          Same rank = wildcard
+        </div>
+      </div>
+    </section>
+
+    <!-- Player Controls Bar -->
+    <div class="player-controls" id="player-controls">
+      <div class="player-info-bar">
+        <div class="my-avatar" id="my-avatar">🎴</div>
+        <div>
+          <div class="my-name" id="my-name">–</div>
+          <div class="my-card-count" id="my-card-count">13 cards</div>
+        </div>
+      </div>
+      <div class="action-buttons">
+        <button class="btn btn-ghost btn-sm" id="group-mode-btn" aria-pressed="false">
+          🗂️ Group Mode
+        </button>
+        <button class="btn btn-declare" id="declare-btn" disabled
+          aria-label="Declare your hand">
+          🏆 Declare!
+        </button>
+      </div>
+    </div>
+
+    <!-- Player Hand -->
+    <section class="player-hand-area" aria-label="Your hand">
+      <div class="sort-panel" id="sort-panel" aria-label="Sort options">
+        <button class="sort-btn active" data-sort="suit" aria-pressed="true">By Suit</button>
+        <button class="sort-btn" data-sort="rank" aria-pressed="false">By Rank</button>
+        <button class="sort-btn" data-sort="none" aria-pressed="false">Original</button>
+      </div>
+      <div class="hand-container" id="hand-container" role="list" aria-label="Your cards"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════
+  YOUR TURN BANNER (shown at turn start)
+═══════════════════════════════════ -->
+<div class="your-turn-banner hidden" id="your-turn-banner" aria-live="assertive">
+  🎯 YOUR TURN — Draw a card!
+</div>
+
+<!-- ═══════════════════════════════════
+  DISCARD SELECTION PROMPT
+═══════════════════════════════════ -->
+<div class="discard-selection-overlay hidden" id="discard-prompt">
+  <div class="discard-prompt-text">Select a card to discard</div>
+  <div class="discard-hint">Tap any card in your hand to discard it</div>
+</div>
+
+<!-- ═══════════════════════════════════
+  DECLARE MODAL (validation UI)
+═══════════════════════════════════ -->
+<div class="modal-overlay hidden" id="declare-modal" role="dialog" aria-modal="true" aria-labelledby="declare-modal-title">
+  <div class="modal glass">
+    <h2 class="modal-title" id="declare-modal-title">🏆 Declare Hand</h2>
+    <p class="modal-subtitle">Review your hand validation before declaring</p>
+    <div class="declare-panel" id="declare-panel"></div>
+    <div style="margin-top:1.5rem;display:flex;gap:0.75rem;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-ghost" id="declare-cancel-btn">Cancel</button>
+      <button class="btn btn-success" id="declare-confirm-btn" disabled>
+        ✅ Confirm Declaration
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+  RULES MODAL
+═══════════════════════════════════ -->
+<div class="modal-overlay hidden" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-modal-title">
+  <div class="modal glass" style="max-width:520px">
+    <h2 class="modal-title" id="rules-modal-title">📋 Game Rules</h2>
+    <div style="font-size:var(--text-sm);color:var(--color-text-secondary);line-height:1.7;display:flex;flex-direction:column;gap:1rem;max-height:60dvh;overflow-y:auto">
+      <div><strong style="color:var(--color-text-primary)">🃏 Deck:</strong> Two standard 52-card decks + 2 Joker cards = 106 cards total.</div>
+      <div><strong style="color:var(--color-text-primary)">🌟 Secret Joker:</strong> One random card is revealed — all cards of that rank act as wildcards, along with printed Joker cards.</div>
+      <div><strong style="color:var(--color-text-primary)">▶ Your Turn:</strong> First draw one card (from deck or top of discard pile), then discard one card.</div>
+      <div><strong style="color:var(--color-text-primary)">✅ Pure Sequence:</strong> 3+ consecutive cards of the same suit, NO jokers used.</div>
+      <div><strong style="color:var(--color-text-primary)">🔵 Impure Sequence:</strong> 3+ consecutive same-suit cards where jokers fill gaps.</div>
+      <div><strong style="color:var(--color-text-primary)">🟡 Triplet / Set:</strong> 3 or more cards of the same rank, different suits.</div>
+      <div><strong style="color:var(--color-text-primary)">🏆 Declare:</strong> You need ≥2 sequences (at least 1 must be pure). Remaining cards can be sequences or triplets. All 13 cards must be in valid groups.</div>
+      <div><strong style="color:var(--color-text-primary)">📊 Grouping:</strong> Use <em>Group Mode</em> to drag cards into groups before declaring. Label each group as Sequence or Triplet.</div>
+    </div>
+    <button class="btn btn-ghost w-full" id="rules-close-btn" style="margin-top:1.5rem">Close</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+  WIN OVERLAY
+═══════════════════════════════════ -->
+<div class="win-overlay hidden" id="win-overlay" role="dialog" aria-modal="true" aria-labelledby="win-title">
+  <div class="win-card glass">
+    <span class="win-emoji" id="win-emoji">🏆</span>
+    <h2 class="win-title text-gold-shimmer" id="win-title">–</h2>
+    <p class="win-subtitle" id="win-subtitle">–</p>
+    <div class="win-actions">
+      <a href="lobby.html" class="btn btn-primary btn-lg">🎲 New Game</a>
+      <a href="history.html" class="btn btn-ghost btn-lg">📊 History</a>
+      <a href="index.html" class="btn btn-ghost btn-lg">🏠 Home</a>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { getCurrentPlayer, subscribeToGameState, updateGameState, setPlayerOnline,
+         saveGameResult, getSession } from './js/session.js';
+import { sortBySuit, sortByRank, isWildcard } from './js/deck.js';
+import { validateHand, groupLabel, buildChecks } from './js/game-engine.js';
+import { createCardEl, renderHand, renderOpponentPanel, showToast,
+         launchConfetti, updateTimerRing, escHtml, copyToClipboard } from './js/ui.js';
+
+// ─────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────
+const params      = new URLSearchParams(window.location.search);
+const sessionId   = params.get('session');
+
+let player        = getCurrentPlayer();
+let gameState     = null;
+let myHand        = [];
+let sortMode      = 'suit';
+let selectedCards = new Set();
+let groups        = []; // user-arranged groups for declaration
+let groupMode     = false;
+let turnTimer     = null;
+let timerSeconds  = 30;
+let unsubscribe   = null;
+let gameStartTime = Date.now();
+
+// ─────────────────────────────────────────────────────────
+// Auth Guard
+// ─────────────────────────────────────────────────────────
+if (!player || !sessionId) {
+  window.location.href = 'index.html';
+  throw new Error('Not authenticated');
+}
+
+if (player.sessionId !== sessionId) {
+  window.location.href = `index.html?session=${sessionId}`;
+  throw new Error('Session mismatch');
+}
+
+// ─────────────────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────────────────
+async function init() {
+  // Mark player online
+  await setPlayerOnline(sessionId, player.playerId, true);
+
+  // Update my info in HUD
+  document.getElementById('my-avatar').textContent = player.avatar || '🎴';
+  document.getElementById('my-name').textContent   = player.name || 'You';
+
+  // Subscribe to game state
+  unsubscribe = subscribeToGameState(sessionId, onGameStateUpdate);
+
+  // Load session for initial waiting room info
+  const session = await getSession(sessionId);
+  if (session) updateWaitingRoom(session);
+
+  // Mark offline on unload
+  window.addEventListener('beforeunload', () => {
+    setPlayerOnline(sessionId, player.playerId, false);
+    if (unsubscribe) unsubscribe();
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// Waiting Room
+// ─────────────────────────────────────────────────────────
+function updateWaitingRoom(session) {
+  const players = Object.values(session.players || {});
+  const list = document.getElementById('players-joined-list');
+  list.innerHTML = '';
+
+  players.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'joined-player';
+    item.innerHTML = `
+      <div class="joined-player-dot" style="background:${p.joined ? 'var(--color-success)' : 'var(--color-text-muted)'}"></div>
+      <span>${escHtml(p.avatar || '')} ${escHtml(p.name)}${p.isHost ? ' 👑' : ''}${p.joined ? '' : ' (waiting)'}</span>
+    `;
+    list.appendChild(item);
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// Game State Handler
+// ─────────────────────────────────────────────────────────
+function onGameStateUpdate(state) {
+  if (!state) return;
+  gameState = state;
+
+  // If game just started, show game board
+  if (state.hands) {
+    document.getElementById('waiting-room').classList.add('hidden');
+    document.getElementById('game-page').classList.remove('hidden');
+
+    // Get my hand
+    myHand = state.hands[player.playerId] || [];
+    renderMyHand();
+
+    // Render opponents
+    renderOpponents(state);
+
+    // Render center
+    renderCenter(state);
+
+    // Update turn
+    updateTurnUI(state);
+
+    // Check win state
+    if (state.winner) {
+      showWinScreen(state.winner, state);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Render My Hand
+// ─────────────────────────────────────────────────────────
+function renderMyHand() {
+  const container = document.getElementById('hand-container');
+  const secretJoker = gameState?.secretJoker;
+
+  let displayHand = [...myHand];
+  if (sortMode === 'suit') displayHand = sortBySuit(myHand);
+  if (sortMode === 'rank') displayHand = sortByRank(myHand);
+
+  container.innerHTML = '';
+  displayHand.forEach((card, i) => {
+    const el = createCardEl(card, secretJoker, { selected: selectedCards.has(card.id) });
+    el.setAttribute('role', 'listitem');
+    el.setAttribute('aria-label', `${card.rank} of ${card.suit}`);
+    el.style.animationDelay = `${i * 30}ms`;
+    el.classList.add('card-dealing');
+    el.addEventListener('click', () => onCardClick(card, el));
+    container.appendChild(el);
+  });
+
+  document.getElementById('my-card-count').textContent = `${myHand.length} cards`;
+  document.getElementById('declare-btn').disabled =
+    !isMyTurn() || gameState?.turnPhase !== 'discard' || myHand.length !== 13;
+}
+
+// ─────────────────────────────────────────────────────────
+// Card Click Handler
+// ─────────────────────────────────────────────────────────
+function onCardClick(card, el) {
+  const phase = gameState?.turnPhase;
+
+  if (!isMyTurn()) {
+    showToast("It's not your turn!", 'warning', 2000);
+    return;
+  }
+
+  if (phase === 'draw') {
+    showToast('Draw a card first! Click the deck or discard pile.', 'info', 2000);
+    return;
+  }
+
+  if (phase === 'discard') {
+    // Discard this card
+    discardCard(card);
+    return;
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Render Opponents
+// ─────────────────────────────────────────────────────────
+function renderOpponents(state) {
+  const zone = document.getElementById('opponents-zone');
+  zone.innerHTML = '';
+
+  const allPlayers  = Object.values(state.handsPublic || {});
+  const turnPlayers = state.turnOrder || [];
+
+  // Get session player metadata from game state or stored
+  turnPlayers.forEach(pid => {
+    if (pid === player.playerId) return; // Skip self
+    const pub = state.handsPublic?.[pid];
+    if (!pub) return;
+
+    const panel = document.createElement('div');
+    const isActive = state.currentTurnPlayerId === pid;
+    panel.className = `opponent-panel${isActive ? ' active-turn' : ''}`;
+    panel.dataset.playerId = pid;
+
+    const cardCount = pub.cardCount ?? 13;
+    const cardsToShow = Math.min(cardCount, 7);
+    let handHtml = '';
+    for (let i = 0; i < cardsToShow; i++) {
+      handHtml += `<div class="card-back card-back-sm" style="margin-left:${i > 0 ? '-20px' : '0'}"></div>`;
+    }
+
+    panel.innerHTML = `
+      <div class="opponent-avatar">
+        ${pub.avatar || '🎴'}
+        <div class="opponent-online-dot${pub.online ? '' : ' offline'}"></div>
+      </div>
+      <div class="opponent-name">${escHtml(pub.name || 'Player')}</div>
+      <div class="opponent-hand">${handHtml}</div>
+      <div class="opponent-card-count">🃏 ${cardCount}</div>
+    `;
+    zone.appendChild(panel);
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// Render Center Piles
+// ─────────────────────────────────────────────────────────
+function renderCenter(state) {
+  // Draw pile
+  const drawCount = (state.drawPile || []).length;
+  document.getElementById('draw-pile-count').textContent = `${drawCount} cards`;
+
+  // Discard pile top card
+  const discardTop = (state.discardPile || []).slice(-1)[0];
+  const discardEl  = document.getElementById('discard-pile-top');
+  discardEl.innerHTML = '';
+  if (discardTop) {
+    discardEl.appendChild(createCardEl(discardTop, state.secretJoker));
+  }
+
+  // Secret Joker
+  const jokerEl = document.getElementById('secret-joker-display');
+  jokerEl.innerHTML = '';
+  if (state.secretJoker) {
+    const jokerCard = createCardEl(state.secretJoker, null, { size: 'lg' });
+    jokerEl.appendChild(jokerCard);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Turn UI
+// ─────────────────────────────────────────────────────────
+function updateTurnUI(state) {
+  const isMy = isMyTurn();
+  const turnPlayerName = state.handsPublic?.[state.currentTurnPlayerId]?.name
+    || (isMy ? (player.name || 'You') : 'Opponent');
+
+  document.getElementById('whose-turn-text').textContent =
+    isMy ? `⭐ Your Turn` : `${escHtml(turnPlayerName)}'s Turn`;
+
+  const banner = document.getElementById('your-turn-banner');
+  const discardPrompt = document.getElementById('discard-prompt');
+
+  if (isMy) {
+    if (state.turnPhase === 'draw') {
+      banner.classList.remove('hidden');
+      discardPrompt.classList.add('hidden');
+      setTimeout(() => banner.classList.add('hidden'), 3000);
+    } else if (state.turnPhase === 'discard') {
+      banner.classList.add('hidden');
+      discardPrompt.classList.remove('hidden');
+    }
+  } else {
+    banner.classList.add('hidden');
+    discardPrompt.classList.add('hidden');
+  }
+
+  // Declare button
+  document.getElementById('declare-btn').disabled =
+    !isMy || state.turnPhase !== 'discard' || myHand.length !== 13;
+}
+
+function isMyTurn() {
+  return gameState?.currentTurnPlayerId === player.playerId;
+}
+
+// ─────────────────────────────────────────────────────────
+// Draw Card
+// ─────────────────────────────────────────────────────────
+async function drawFromDeck() {
+  if (!isMyTurn() || gameState?.turnPhase !== 'draw') return;
+  const drawPile = [...(gameState.drawPile || [])];
+  if (drawPile.length === 0) {
+    showToast('Draw pile is empty!', 'warning');
+    return;
+  }
+  const drawnCard = drawPile.pop();
+  myHand.push(drawnCard);
+
+  const updates = {
+    drawPile,
+    turnPhase: 'discard',
+    [`hands/${player.playerId}`]: myHand,
+    [`handsPublic/${player.playerId}/cardCount`]: myHand.length,
+  };
+  await updateGameState(sessionId, updates);
+  showToast(`Drew: ${drawnCard.rank} ${drawnCard.suit === 'joker' ? '🃏' : ''}`, 'info', 2000);
+}
+
+async function drawFromDiscard() {
+  if (!isMyTurn() || gameState?.turnPhase !== 'draw') return;
+  const discardPile = [...(gameState.discardPile || [])];
+  if (discardPile.length === 0) {
+    showToast('Discard pile is empty!', 'warning');
+    return;
+  }
+  const drawnCard = discardPile.pop();
+  myHand.push(drawnCard);
+
+  const updates = {
+    discardPile,
+    turnPhase: 'discard',
+    [`hands/${player.playerId}`]: myHand,
+    [`handsPublic/${player.playerId}/cardCount`]: myHand.length,
+  };
+  await updateGameState(sessionId, updates);
+  showToast(`Picked up: ${drawnCard.rank} of ${drawnCard.suit} 👆`, 'success', 2000);
+}
+
+// ─────────────────────────────────────────────────────────
+// Discard Card
+// ─────────────────────────────────────────────────────────
+async function discardCard(card) {
+  if (!isMyTurn() || gameState?.turnPhase !== 'discard') return;
+
+  const cardIndex = myHand.findIndex(c => c.id === card.id);
+  if (cardIndex === -1) return;
+
+  myHand.splice(cardIndex, 1);
+
+  const discardPile = [...(gameState.discardPile || []), card];
+
+  // Advance turn
+  const turnOrder   = gameState.turnOrder || [];
+  const currentIdx  = gameState.currentTurnIndex ?? 0;
+  const nextIdx     = (currentIdx + 1) % turnOrder.length;
+
+  const updates = {
+    discardPile,
+    turnPhase: 'draw',
+    currentTurnIndex: nextIdx,
+    currentTurnPlayerId: turnOrder[nextIdx],
+    [`hands/${player.playerId}`]: myHand,
+    [`handsPublic/${player.playerId}/cardCount`]: myHand.length,
+  };
+
+  await updateGameState(sessionId, updates);
+  document.getElementById('discard-prompt').classList.add('hidden');
+}
+
+// ─────────────────────────────────────────────────────────
+// Declare
+// ─────────────────────────────────────────────────────────
+function openDeclareModal() {
+  const secretJoker = gameState?.secretJoker;
+  const result = validateHand(myHand, secretJoker, groups.length > 0 ? groups : null);
+
+  const panel = document.getElementById('declare-panel');
+  const confirmBtn = document.getElementById('declare-confirm-btn');
+  panel.innerHTML = '';
+
+  // Render validation checks
+  const checks = result.checks || buildChecks(groups, secretJoker, false, false);
+  checks.forEach(check => {
+    const div = document.createElement('div');
+    div.className = 'declare-check';
+    div.innerHTML = `
+      <div class="check-icon ${check.pass ? 'pass' : 'fail'}">${check.pass ? '✓' : '✗'}</div>
+      <div class="check-text">
+        <div>${escHtml(check.label)}</div>
+        <div class="check-detail">${escHtml(check.detail)}</div>
+      </div>
+    `;
+    panel.appendChild(div);
+  });
+
+  // Result message
+  const msg = document.createElement('div');
+  msg.style.cssText = `margin-top:1rem;padding:0.75rem;border-radius:var(--radius-lg);
+    text-align:center;font-weight:600;font-size:var(--text-sm);
+    background:${result.valid ? 'rgba(76,175,119,0.1)' : 'rgba(232,64,85,0.1)'};
+    color:${result.valid ? 'var(--color-success)' : 'var(--color-error)'};
+    border:1px solid ${result.valid ? 'rgba(76,175,119,0.3)' : 'rgba(232,64,85,0.3)'}`;
+  msg.textContent = result.reason;
+  panel.appendChild(msg);
+
+  if (!result.valid) {
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top:0.75rem;font-size:var(--text-xs);color:var(--color-text-muted);text-align:center';
+    hint.innerHTML = '💡 Use <strong>Group Mode</strong> to organize your cards into sequences and triplets before declaring.';
+    panel.appendChild(hint);
+  }
+
+  confirmBtn.disabled = !result.valid;
+  document.getElementById('declare-modal').classList.remove('hidden');
+}
+
+async function confirmDeclare() {
+  document.getElementById('declare-modal').classList.add('hidden');
+  showToast('🏆 Declaring! Validating hand...', 'success');
+
+  const updates = {
+    winner: player.playerId,
+    winnerName: player.name,
+    winnerAvatar: player.avatar,
+    gameEndTime: Date.now(),
+  };
+  await updateGameState(sessionId, updates);
+}
+
+// ─────────────────────────────────────────────────────────
+// Win Screen
+// ─────────────────────────────────────────────────────────
+function showWinScreen(winnerId, state) {
+  const iWon = winnerId === player.playerId;
+  const winnerName = state.winnerName || 'Someone';
+  const winnerAvatar = state.winnerAvatar || '🏆';
+
+  document.getElementById('win-emoji').textContent = iWon ? '🏆' : winnerAvatar;
+  document.getElementById('win-title').textContent = iWon ? 'You Won!' : `${winnerName} Wins!`;
+  document.getElementById('win-subtitle').textContent = iWon
+    ? 'Congratulations! You formed a valid declaration! 🎉'
+    : `${winnerName} declared first with a valid hand.`;
+
+  document.getElementById('win-overlay').classList.remove('hidden');
+
+  if (iWon) {
+    launchConfetti();
+    // Save game result
+    saveGameResult(sessionId, {
+      winner: { id: player.playerId, name: player.name },
+      players: Object.values(state.handsPublic || {}),
+      duration: Date.now() - (state.gameStarted || gameStartTime),
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Sort
+// ─────────────────────────────────────────────────────────
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sort-btn').forEach(b => {
+      b.classList.remove('active');
+      b.setAttribute('aria-pressed', 'false');
+    });
+    btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
+    sortMode = btn.dataset.sort;
+    renderMyHand();
+  });
+});
+
+document.getElementById('sort-toggle-btn').addEventListener('click', () => {
+  const modes = ['suit', 'rank', 'none'];
+  const next = modes[(modes.indexOf(sortMode) + 1) % modes.length];
+  document.querySelector(`.sort-btn[data-sort="${next}"]`)?.click();
+});
+
+// ─────────────────────────────────────────────────────────
+// Pile Interactions
+// ─────────────────────────────────────────────────────────
+document.getElementById('draw-pile').addEventListener('click', drawFromDeck);
+document.getElementById('draw-pile').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drawFromDeck(); }
+});
+
+document.getElementById('discard-pile').addEventListener('click', drawFromDiscard);
+document.getElementById('discard-pile').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drawFromDiscard(); }
+});
+
+// ─────────────────────────────────────────────────────────
+// Declare Button
+// ─────────────────────────────────────────────────────────
+document.getElementById('declare-btn').addEventListener('click', openDeclareModal);
+document.getElementById('declare-cancel-btn').addEventListener('click', () => {
+  document.getElementById('declare-modal').classList.add('hidden');
+});
+document.getElementById('declare-confirm-btn').addEventListener('click', confirmDeclare);
+
+// ─────────────────────────────────────────────────────────
+// Rules Modal
+// ─────────────────────────────────────────────────────────
+document.getElementById('rules-btn').addEventListener('click', () => {
+  document.getElementById('rules-modal').classList.remove('hidden');
+});
+document.getElementById('rules-close-btn').addEventListener('click', () => {
+  document.getElementById('rules-modal').classList.add('hidden');
+});
+
+// Click outside to close modals
+['rules-modal', 'declare-modal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => {
+    if (e.target.id === id) document.getElementById(id).classList.add('hidden');
+  });
+});
+
+// ─────────────────────────────────────────────────────────
+// Group Mode (simplified — toggle for future DnD grouping)
+// ─────────────────────────────────────────────────────────
+document.getElementById('group-mode-btn').addEventListener('click', () => {
+  groupMode = !groupMode;
+  const btn = document.getElementById('group-mode-btn');
+  btn.setAttribute('aria-pressed', groupMode);
+  btn.classList.toggle('btn-outline', groupMode);
+  btn.classList.toggle('btn-ghost', !groupMode);
+  showToast(groupMode
+    ? '🗂️ Group Mode: Select cards then use the arrange tool to group them'
+    : 'Group Mode off', 'info', 2500);
+});
+
+// ─────────────────────────────────────────────────────────
+// START
+// ─────────────────────────────────────────────────────────
+init().catch(console.error);
+</script>
+</body>
+</html>

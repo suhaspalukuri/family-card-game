@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Host Lobby — Rummy Royale</title>
+  <meta name="description" content="Create a Rummy Royale game session. Set up player IDs and PINs and share them with your friends." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🃏</text></svg>" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/lobby.css" />
+  <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+  <style>
+    .rules-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .rule-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      line-height: 1.5;
+    }
+    .rule-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: rgba(201, 168, 76, 0.1);
+      border: 1px solid rgba(201, 168, 76, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 800;
+      color: var(--color-gold);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .session-id-display {
+      font-size: var(--text-3xl);
+      font-weight: 800;
+      letter-spacing: 0.15em;
+      color: var(--color-gold);
+      text-align: center;
+      padding: 1rem;
+      background: rgba(201, 168, 76, 0.08);
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(201, 168, 76, 0.2);
+      font-family: monospace;
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+    .session-id-display:hover {
+      background: rgba(201, 168, 76, 0.15);
+    }
+    .players-count-select {
+      width: 100%;
+    }
+    select.input {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 0l6 8 6-8z' fill='%238A9BB0'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 2rem;
+      cursor: pointer;
+    }
+    select.input option {
+      background: #162437;
+      color: #E8EFF7;
+    }
+    .players-count-label {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    .start-section {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      padding: 1rem 0;
+      flex-wrap: wrap;
+    }
+    .session-header {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+    .session-label {
+      font-size: var(--text-xs);
+      font-weight: 700;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.5rem;
+    }
+    .session-copy-hint {
+      font-size: var(--text-xs);
+      color: var(--color-text-muted);
+      margin-top: 0.5rem;
+      text-align: center;
+    }
+    .player-count-info {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      text-align: center;
+      margin: 1rem 0 0.5rem;
+    }
+    #session-created-panel { display: none; }
+    #create-form-panel {}
+  </style>
+</head>
+<body class="bg-pattern">
+<div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+<!-- Ably Setup Warning -->
+<div id="setup-warning" style="
+  display:none; position:fixed; top:0; left:0; right:0; z-index:9999;
+  background:linear-gradient(90deg,rgba(201,168,76,0.95),rgba(255,180,0,0.9));
+  color:#0D1B2A; font-weight:700; font-size:0.85rem;
+  padding:0.6rem 1rem; text-align:center;
+" role="alert">
+  ⚠️ Paste your Ably API key in <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px">js/session.js</code> before hosting.
+  <a href="https://ably.com" target="_blank" rel="noopener" style="color:#0D1B2A;text-decoration:underline;margin-left:0.5rem">Get free key →</a>
+</div>
+
+<div class="lobby-page">
+  <!-- Header -->
+  <header class="lobby-header">
+    <div class="lobby-header-left">
+      <span class="lobby-logo">🃏</span>
+      <div>
+        <h1 class="lobby-title text-gold-shimmer">Rummy Royale</h1>
+        <p class="lobby-subtitle">Host Dashboard</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="history.html" class="btn btn-ghost btn-sm">📊 History</a>
+      <a href="index.html" class="btn btn-ghost btn-sm">← Back</a>
+    </div>
+  </header>
+
+  <!-- Create Session Form -->
+  <div id="create-form-panel" class="setup-panel">
+    <!-- Left: Setup -->
+    <div class="glass setup-section">
+      <h2 class="setup-section-title">⚙️ Game Setup</h2>
+      <p class="setup-section-subtitle">Configure your game session</p>
+
+      <div class="input-group" style="margin-bottom:1.25rem">
+        <label class="input-label" for="player-count">Number of Players</label>
+        <select class="input players-count-select" id="player-count">
+          <option value="2">2 Players</option>
+          <option value="3">3 Players</option>
+          <option value="4" selected>4 Players</option>
+          <option value="5">5 Players</option>
+          <option value="6">6 Players</option>
+        </select>
+      </div>
+
+      <div class="player-name-grid" id="player-name-grid">
+        <!-- Dynamically filled -->
+      </div>
+
+      <button class="btn btn-primary btn-lg w-full" id="create-session-btn">
+        <span id="create-btn-text">🎲 Create Session</span>
+        <span id="create-btn-loader" class="loader hidden"></span>
+      </button>
+    </div>
+
+    <!-- Right: Rules Summary -->
+    <div class="glass setup-section">
+      <h2 class="setup-section-title">📋 How to Play</h2>
+      <p class="setup-section-subtitle">Quick rules reference</p>
+
+      <ul class="rules-list">
+        <li class="rule-item">
+          <div class="rule-icon">1</div>
+          <div><strong style="color:var(--color-text-primary)">Deal:</strong> Each player gets 13 cards from 2 shuffled decks (106 cards). One card is revealed as the Secret Joker wildcard.</div>
+        </li>
+        <li class="rule-item">
+          <div class="rule-icon">2</div>
+          <div><strong style="color:var(--color-text-primary)">Turns:</strong> On your turn, draw a card (from deck or discard pile), then discard one card.</div>
+        </li>
+        <li class="rule-item">
+          <div class="rule-icon">3</div>
+          <div><strong style="color:var(--color-text-primary)">Sequences:</strong> Form runs of 3+ consecutive cards in the same suit. At least 1 must be pure (no jokers).</div>
+        </li>
+        <li class="rule-item">
+          <div class="rule-icon">4</div>
+          <div><strong style="color:var(--color-text-primary)">Triplets:</strong> 3+ cards of the same rank. Allowed after you have 2 valid sequences.</div>
+        </li>
+        <li class="rule-item">
+          <div class="rule-icon">★</div>
+          <div><strong style="color:var(--color-text-primary)">Declare:</strong> Organize all 13 cards into valid groups (≥2 sequences, ≥1 pure) and declare to win!</div>
+        </li>
+        <li class="rule-item">
+          <div class="rule-icon">🃏</div>
+          <div><strong style="color:var(--color-text-primary)">Jokers:</strong> The printed Joker card and all cards of the Secret Joker's rank act as wildcards.</div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Session Created Panel -->
+  <div id="session-created-panel">
+    <div class="session-header">
+      <div class="session-label">Your Session ID</div>
+      <div class="session-id-display" id="session-id-display" title="Click to copy" role="button" tabindex="0" aria-label="Session ID, click to copy">
+        ········
+      </div>
+      <div class="session-copy-hint">Click Session ID to copy • Share the link below with each player</div>
+    </div>
+
+    <div class="setup-panel">
+      <!-- Player Credentials -->
+      <div class="glass setup-section">
+        <h2 class="setup-section-title">👥 Player Credentials</h2>
+        <p class="setup-section-subtitle">Share each player's ID and PIN privately</p>
+
+        <div class="player-slots" id="player-slots-list">
+          <!-- Dynamically filled -->
+        </div>
+
+        <div style="margin-top:1.25rem;">
+          <div class="share-link-box">
+            <span class="share-link-text" id="base-share-link">–</span>
+            <button class="copy-btn" id="copy-base-link" title="Copy base link" aria-label="Copy base game link">📋</button>
+          </div>
+          <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:0.5rem;text-align:center;">
+            Share this base link + each player's unique ID and PIN separately
+          </div>
+        </div>
+      </div>
+
+      <!-- Game Status -->
+      <div class="glass setup-section">
+        <h2 class="setup-section-title">📊 Session Status</h2>
+        <p class="setup-section-subtitle">Real-time player readiness</p>
+
+        <div class="game-status-panel">
+          <div class="status-row">
+            <span class="status-label">Session ID</span>
+            <span class="status-value text-gold" id="status-session-id">–</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Players Joined</span>
+            <span class="status-value" id="status-joined-count">0 / 0</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Status</span>
+            <span class="badge badge-gold" id="status-badge">Waiting</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Created</span>
+            <span class="status-value text-muted" id="status-created">–</span>
+          </div>
+        </div>
+
+        <div style="margin-top:1.5rem">
+          <div class="player-count-info" id="player-count-info">
+            Waiting for players to join...
+          </div>
+          <button class="btn btn-success btn-lg w-full" id="start-game-btn" disabled>
+            🎮 Start Game
+          </button>
+          <button class="btn btn-ghost btn-sm w-full" id="new-session-btn" style="margin-top:0.75rem">
+            + Create New Session
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { createSession, subscribeToSession, setGameState, getCurrentPlayer, getStoredSession,
+           isAblyConfigured }
+    from './js/session.js';
+  import { dealCards } from './js/deck.js';
+  import { showToast, copyToClipboard, formatDate, escHtml } from './js/ui.js';
+
+  if (!isAblyConfigured()) document.getElementById('setup-warning').style.display = 'block';
+
+  const playerCountSel  = document.getElementById('player-count');
+  const nameGrid        = document.getElementById('player-name-grid');
+  const createBtn       = document.getElementById('create-session-btn');
+  const createBtnText   = document.getElementById('create-btn-text');
+  const createBtnLoader = document.getElementById('create-btn-loader');
+  const createPanel     = document.getElementById('create-form-panel');
+  const createdPanel    = document.getElementById('session-created-panel');
+  const sessionDisplay  = document.getElementById('session-id-display');
+  const playerSlotsList = document.getElementById('player-slots-list');
+  const startBtn        = document.getElementById('start-game-btn');
+  const newSessionBtn   = document.getElementById('new-session-btn');
+  const statusJoinedEl  = document.getElementById('status-joined-count');
+  const statusBadgeEl   = document.getElementById('status-badge');
+  const statusSessionEl = document.getElementById('status-session-id');
+  const statusCreatedEl = document.getElementById('status-created');
+  const playerCountInfo = document.getElementById('player-count-info');
+  const baseLinkEl      = document.getElementById('base-share-link');
+  const copyBaseLinkBtn = document.getElementById('copy-base-link');
+
+  let currentSession = null;
+  let unsubscribe = null;
+  let minPlayers = 2;
+
+  // Build player name inputs
+  function buildNameGrid(count) {
+    nameGrid.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+      const group = document.createElement('div');
+      group.className = 'player-name-input-group';
+      group.innerHTML = `
+        <label for="pname-${i}">Player ${i + 1} Name${i === 0 ? ' (You/Host)' : ''}</label>
+        <input class="input" type="text" id="pname-${i}"
+          placeholder="${i === 0 ? 'Host' : 'Player ' + (i + 1)}"
+          maxlength="20" autocomplete="off" />
+      `;
+      nameGrid.appendChild(group);
+    }
+  }
+
+  playerCountSel.addEventListener('change', () => buildNameGrid(+playerCountSel.value));
+  buildNameGrid(+playerCountSel.value);
+
+  // ─── Create Session ───────────────────────────────────────
+  createBtn.addEventListener('click', async () => {
+    const count = +playerCountSel.value;
+    minPlayers  = count;
+
+    const configs = Array.from({ length: 6 }, (_, i) => {
+      const input = document.getElementById(`pname-${i}`);
+      return { name: input?.value.trim() || `Player ${i + 1}` };
+    });
+
+    setLoading(true);
+    try {
+      const session = await createSession(configs, { minPlayers: count });
+      currentSession = session;
+      showCreatedPanel(session);
+      showToast('Session created! Share credentials with players. 🎉', 'success');
+
+      // Subscribe to real-time updates
+      unsubscribe = subscribeToSession(session.id, updateStatus);
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to create session. Check Firebase config.', 'error', 5000);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  function setLoading(loading) {
+    createBtnText.classList.toggle('hidden', loading);
+    createBtnLoader.classList.toggle('hidden', !loading);
+    createBtn.disabled = loading;
+  }
+
+  function showCreatedPanel(session) {
+    createPanel.style.display = 'none';
+    createdPanel.style.display = 'block';
+
+    sessionDisplay.textContent = session.id;
+    statusSessionEl.textContent = session.id;
+    statusCreatedEl.textContent = new Date().toLocaleTimeString();
+
+    const baseUrl = `${window.location.origin}${window.location.pathname.replace('lobby.html', '')}index.html?session=${session.id}`;
+    baseLinkEl.textContent = baseUrl;
+
+    copyBaseLinkBtn.addEventListener('click', async () => {
+      await copyToClipboard(baseUrl);
+      showToast('Base link copied!', 'success', 2000);
+    });
+
+    sessionDisplay.addEventListener('click', async () => {
+      await copyToClipboard(session.id);
+      showToast('Session ID copied!', 'success', 2000);
+    });
+    sessionDisplay.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') sessionDisplay.click();
+    });
+
+    renderPlayerSlots(session);
+    updateStatus(session);
+  }
+
+  function renderPlayerSlots(session) {
+    playerSlotsList.innerHTML = '';
+    const players = Object.values(session.players);
+
+    players.forEach(player => {
+      const slot = document.createElement('div');
+      slot.className = `player-slot${player.isHost ? ' host' : ''}${player.joined ? ' active' : ''}`;
+      slot.id = `slot-${player.id}`;
+
+      const deepLink = `${window.location.origin}${window.location.pathname.replace('lobby.html','')}index.html?session=${session.id}&pid=${player.id}`;
+
+      slot.innerHTML = `
+        <div class="slot-number">${player.slot}</div>
+        <div style="font-size:1.25rem;flex-shrink:0">${player.avatar}</div>
+        <div class="slot-info">
+          <div class="slot-name">${escHtml(player.name)}${player.isHost ? ' <span class="badge badge-gold" style="font-size:9px;padding:1px 5px;">HOST</span>' : ''}</div>
+          <div class="slot-credentials">
+            <span class="credential-chip" title="Player ID">ID: ${player.id}</span>
+            <span class="credential-chip" title="PIN">PIN: ${player.pin}</span>
+          </div>
+        </div>
+        <div class="slot-actions">
+          <span class="badge ${player.joined ? 'badge-green' : 'badge-red'}" id="badge-${player.id}">${player.joined ? '✓ Joined' : 'Waiting'}</span>
+          <button class="copy-btn" title="Copy player credentials"
+            data-link="${deepLink}" data-pid="${player.id}" data-pin="${player.pin}" data-name="${escHtml(player.name)}">
+            📋
+          </button>
+        </div>
+      `;
+
+      playerSlotsList.appendChild(slot);
+    });
+
+    // Copy buttons
+    playerSlotsList.querySelectorAll('.copy-btn[data-pid]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const link = btn.dataset.link;
+        const pid  = btn.dataset.pid;
+        const pin  = btn.dataset.pin;
+        const name = btn.dataset.name;
+        const text = `🃏 Rummy Royale Invitation\nPlayer: ${name}\nSession: ${session.id}\nID: ${pid}\nPIN: ${pin}\nJoin: ${link}`;
+        await copyToClipboard(text);
+        showToast(`Copied ${name}'s credentials!`, 'success', 2000);
+      });
+    });
+  }
+
+  function updateStatus(session) {
+    currentSession = session;
+    const players   = Object.values(session.players);
+    const joined    = players.filter(p => p.joined).length;
+    const total     = players.length;
+
+    statusJoinedEl.textContent = `${joined} / ${total}`;
+
+    if (session.status === 'playing') {
+      statusBadgeEl.className = 'badge badge-green';
+      statusBadgeEl.textContent = '▶ Playing';
+    } else if (joined >= minPlayers) {
+      statusBadgeEl.className = 'badge badge-gold';
+      statusBadgeEl.textContent = '✓ Ready';
+    } else {
+      statusBadgeEl.className = 'badge badge-red';
+      statusBadgeEl.textContent = 'Waiting';
+    }
+
+    startBtn.disabled = joined < minPlayers || session.status === 'playing';
+
+    if (joined < minPlayers) {
+      playerCountInfo.innerHTML = `Need at least <strong>${minPlayers}</strong> players. Currently <strong>${joined}</strong> joined. <span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
+    } else {
+      playerCountInfo.innerHTML = `✅ <strong>${joined}</strong> players ready! You can start the game.`;
+    }
+
+    // Update individual badge statuses
+    players.forEach(player => {
+      const badge = document.getElementById(`badge-${player.id}`);
+      if (badge) {
+        badge.className = `badge ${player.joined ? 'badge-green' : 'badge-red'}`;
+        badge.textContent = player.joined ? '✓ Joined' : 'Waiting';
+      }
+      const slot = document.getElementById(`slot-${player.id}`);
+      if (slot) {
+        slot.classList.toggle('active', !!player.joined);
+      }
+    });
+
+    // Redirect host if game is already playing
+    if (session.status === 'playing' && session.gameState) {
+      const stored = getCurrentPlayer();
+      if (stored && stored.sessionId === session.id) {
+        window.location.href = `game.html?session=${session.id}`;
+      }
+    }
+  }
+
+  // ─── Start Game ───────────────────────────────────────────
+  startBtn.addEventListener('click', async () => {
+    if (!currentSession) return;
+    startBtn.disabled = true;
+    startBtn.textContent = '⏳ Dealing cards...';
+
+    const players  = Object.values(currentSession.players);
+    const joined   = players.filter(p => p.joined);
+    const playerIds = joined.map(p => p.id);
+
+    try {
+      const { hands, drawPile, discardPile, secretJoker } = dealCards(joined.length, playerIds);
+
+      // Build game state — hide other players' hands
+      // handsPublic contains metadata visible to all players
+      const handsPublic = {};
+      playerIds.forEach(pid => {
+        const p = joined.find(pl => pl.id === pid);
+        handsPublic[pid] = {
+          cardCount: 13,
+          name: p?.name || 'Player',
+          avatar: p?.avatar || '🎴',
+          online: true,
+          isHost: p?.isHost || false,
+        };
+      });
+
+      const gameState = {
+        secretJoker,
+        drawPile,
+        discardPile,
+        hands, // full hands (each player reads only their own)
+        handsPublic,
+        turnOrder:    playerIds,
+        currentTurnIndex: 0,
+        currentTurnPlayerId: playerIds[0],
+        turnPhase:    'draw', // draw | discard
+        gameStarted:  Date.now(),
+        winner:       null,
+        moveLog:      [],
+      };
+
+      await setGameState(currentSession.id, gameState);
+      showToast('Game started! Cards are being dealt... 🃏', 'success');
+      
+      // Host goes to game page too if they're player 1
+      const hostPlayer = getCurrentPlayer();
+      if (hostPlayer && hostPlayer.sessionId === currentSession.id) {
+        setTimeout(() => window.location.href = `game.html?session=${currentSession.id}`, 1000);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to start game. Please try again.', 'error');
+      startBtn.disabled = false;
+      startBtn.textContent = '🎮 Start Game';
+    }
+  });
+
+  newSessionBtn.addEventListener('click', () => {
+    if (unsubscribe) unsubscribe();
+    createdPanel.style.display = 'none';
+    createPanel.style.display  = 'grid';
+    currentSession = null;
+  });
+
+  // ─── Check if returning host with existing session ─────────
+  const stored = getStoredSession();
+  if (stored && stored.status === 'waiting') {
+    // Offer to continue
+    showToast(`Found existing session ${stored.id}. Scroll down if you want to resume.`, 'info', 5000);
+  }
+</script>
+</body>
+</html>
