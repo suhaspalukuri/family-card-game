@@ -149,7 +149,7 @@
     <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm clear-btn" id="clear-history-btn">🗑️ Clear History</button>
       <a href="index.html" class="btn btn-ghost btn-sm">🏠 Home</a>
-      <a href="lobby.html" class="btn btn-primary btn-sm">🎲 New Game</a>
+      <a href="lobby.html?new=true" class="btn btn-primary btn-sm">🎲 New Game</a>
     </div>
   </header>
 
@@ -181,7 +181,7 @@
 </div>
 
 <script type="module">
-  import { getLocalHistory, getCurrentPlayer } from './js/session.js?v=7';
+  import { getLocalHistory, getCurrentPlayer } from './js/session.js?v=8';
   import { formatDate, escHtml, showToast } from './js/ui.js';
 
   const currentPlayer = getCurrentPlayer();
@@ -261,7 +261,11 @@
   document.getElementById('clear-history-btn').addEventListener('click', () => {
     if (history.length === 0) { showToast('No history to clear', 'info'); return; }
     if (confirm('Clear all game history? This cannot be undone.')) {
-      localStorage.removeItem('rummy_history');
+      try {
+        localStorage.removeItem('rummy_history');
+      } catch (e) {
+        console.warn('LocalStorage not available to clear history:', e);
+      }
       showToast('History cleared', 'success');
       setTimeout(() => window.location.reload(), 800);
     }

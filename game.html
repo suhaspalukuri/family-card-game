@@ -216,7 +216,7 @@
 
 <script type="module">
 import { getCurrentPlayer, subscribeToGameState, updateGameState, setPlayerOnline,
-         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=7';
+         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=8';
 import { sortBySuit, sortByRank, isWildcard } from './js/deck.js';
 import { validateHand, groupLabel, buildChecks } from './js/game-engine.js';
 import { createCardEl, renderHand, renderOpponentPanel, showToast,
@@ -270,7 +270,12 @@ async function init() {
 
   // Check if we have a locally cached game state first (extremely reliable for host/reloads)
   let initialLoaded = false;
-  const cachedState = localStorage.getItem('rummy_game_state');
+  let cachedState = null;
+  try {
+    cachedState = localStorage.getItem('rummy_game_state');
+  } catch (e) {
+    console.warn('LocalStorage not available:', e);
+  }
   if (cachedState) {
     try {
       const state = JSON.parse(cachedState);
@@ -343,7 +348,11 @@ function onGameStateUpdate(state) {
   gameState = state;
 
   // Save to local storage cache for recovery on refresh
-  localStorage.setItem('rummy_game_state', JSON.stringify(state));
+  try {
+    localStorage.setItem('rummy_game_state', JSON.stringify(state));
+  } catch (e) {
+    console.warn('LocalStorage write blocked:', e);
+  }
 
   // If game just started, show game board
   if (state.hands) {

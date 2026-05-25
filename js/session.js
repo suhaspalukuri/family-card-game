@@ -42,11 +42,39 @@ function getAbly() {
   return _ably;
 }
 
+// ─────────────────────────────────────────────────────────
+// Safe LocalStorage Wrapper (handles private browsing / blocked storage)
+// ─────────────────────────────────────────────────────────
+const memoryStorage = {};
+const safeStorage = {
+  getItem(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      return memoryStorage[key] || null;
+    }
+  },
+  setItem(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      memoryStorage[key] = value;
+    }
+  },
+  removeItem(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      delete memoryStorage[key];
+    }
+  }
+};
+
 function getOrCreateClientId() {
-  let id = localStorage.getItem('rummy_client_id');
+  let id = safeStorage.getItem('rummy_client_id');
   if (!id) {
     id = 'client_' + Math.random().toString(36).slice(2, 10);
-    localStorage.setItem('rummy_client_id', id);
+    safeStorage.setItem('rummy_client_id', id);
   }
   return id;
 }
@@ -74,37 +102,37 @@ function generatePin() {
 }
 
 // ─────────────────────────────────────────────────────────
-// LocalStorage Helpers
+// LocalStorage Helpers (Safe Wrapper)
 // ─────────────────────────────────────────────────────────
 const STORAGE_SESSION_KEY = 'rummy_session';
 const STORAGE_PLAYER_KEY  = 'rummy_player';
 const HISTORY_KEY         = 'rummy_history';
 
 function storeSession(session) {
-  localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(session));
+  safeStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(session));
 }
 
 function storePlayer(player) {
-  localStorage.setItem(STORAGE_PLAYER_KEY, JSON.stringify(player));
+  safeStorage.setItem(STORAGE_PLAYER_KEY, JSON.stringify(player));
 }
 
 export function getStoredSession() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_SESSION_KEY)); } catch { return null; }
+  try { return JSON.parse(safeStorage.getItem(STORAGE_SESSION_KEY)); } catch { return null; }
 }
 
 export function getCurrentPlayer() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_PLAYER_KEY)); } catch { return null; }
+  try { return JSON.parse(safeStorage.getItem(STORAGE_PLAYER_KEY)); } catch { return null; }
 }
 
 export function getLocalHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
+  try { return JSON.parse(safeStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
 }
 
 export function saveGameResult(sessionId, result) {
   const history = getLocalHistory();
   history.unshift({ sessionId, date: Date.now(), ...result });
   if (history.length > 50) history.pop();
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  safeStorage.setItem(HISTORY_KEY, JSON.stringify(history));
 }
 
 // ─────────────────────────────────────────────────────────
@@ -220,6 +248,20 @@ export async function resumeSessionAsHost(sessionId) {
   if (hostPlayer) {
     hostPlayer.joined = true;
     hostPlayer.online = true;
+
+    // Auto-restore host credentials if they are missing or mismatched
+    const curr = getCurrentPlayer();
+    if (!curr || curr.sessionId !== sessionId || curr.playerId !== hostPlayer.id) {
+      const playerData = {
+        sessionId,
+        playerId: hostPlayer.id,
+        name:     hostPlayer.name,
+        avatar:   hostPlayer.avatar,
+        isHost:   true,
+        slot:     hostPlayer.slot,
+      };
+      storePlayer(playerData);
+    }
   }
 
   _sessions[sessionId] = session;
@@ -414,7 +456,7 @@ export async function setGameState(sessionId, gameState) {
   // (Ably has no built-in auth/data isolation on free plan, so we publish
   //  all hands in the game-state and let each client read only their own)
   _gameStates[sessionId] = gameState;
-  localStorage.setItem('rummy_game_state', JSON.stringify(gameState));
+  safeStorage.setItem('rummy_game_state', JSON.stringify(gameState));
 
   // Update session status
   const session = _sessions[sessionId];

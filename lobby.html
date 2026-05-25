@@ -280,7 +280,7 @@
 <script type="module">
   import { createSession, resumeSessionAsHost, subscribeToSession, setGameState, getCurrentPlayer, getStoredSession,
            isAblyConfigured }
-    from './js/session.js?v=7';
+    from './js/session.js?v=8';
   import { dealCards } from './js/deck.js';
   import { showToast, copyToClipboard, formatDate, escHtml } from './js/ui.js';
 
@@ -549,15 +549,25 @@
     createdPanel.style.display = 'none';
     createPanel.style.display  = 'grid';
     currentSession = null;
-    localStorage.removeItem('rummy_session'); // Clear stored session so it doesn't auto-resume next time
-    localStorage.removeItem('rummy_game_state'); // Clear cached game state too
+    try {
+      localStorage.removeItem('rummy_session'); // Clear stored session so it doesn't auto-resume next time
+      localStorage.removeItem('rummy_game_state'); // Clear cached game state too
+      localStorage.removeItem('rummy_player'); // Clear host player credentials
+    } catch (e) {
+      console.warn('LocalStorage not available to clear session:', e);
+    }
   });
 
   // ─── Check if returning host with existing session ─────────
   const params = new URLSearchParams(window.location.search);
   if (params.get('new') === 'true') {
-    localStorage.removeItem('rummy_session');
-    localStorage.removeItem('rummy_game_state');
+    try {
+      localStorage.removeItem('rummy_session');
+      localStorage.removeItem('rummy_game_state');
+      localStorage.removeItem('rummy_player');
+    } catch (e) {
+      console.warn('LocalStorage not available to clear session:', e);
+    }
   }
 
   const stored = getStoredSession();
