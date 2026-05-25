@@ -207,7 +207,7 @@
     <h2 class="win-title text-gold-shimmer" id="win-title">–</h2>
     <p class="win-subtitle" id="win-subtitle">–</p>
     <div class="win-actions">
-      <a href="lobby.html" class="btn btn-primary btn-lg">🎲 New Game</a>
+      <a href="lobby.html?new=true" class="btn btn-primary btn-lg">🎲 New Game</a>
       <a href="history.html" class="btn btn-ghost btn-lg">📊 History</a>
       <a href="index.html" class="btn btn-ghost btn-lg">🏠 Home</a>
     </div>
@@ -216,7 +216,7 @@
 
 <script type="module">
 import { getCurrentPlayer, subscribeToGameState, updateGameState, setPlayerOnline,
-         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=5';
+         saveGameResult, getSession, subscribeToSession, getLatestGameState } from './js/session.js?v=6';
 import { sortBySuit, sortByRank, isWildcard } from './js/deck.js';
 import { validateHand, groupLabel, buildChecks } from './js/game-engine.js';
 import { createCardEl, renderHand, renderOpponentPanel, showToast,

@@ -99,6 +99,13 @@
     <h2 class="login-title">Join a Game</h2>
     <p class="login-subtitle">Enter your credentials shared by the host</p>
 
+    <!-- Resume active session panel -->
+    <div id="resume-container" class="hidden" style="margin-bottom: 1.5rem; text-align: center; padding: 0.75rem; background: rgba(201, 168, 76, 0.1); border-radius: var(--radius-lg); border: 1px solid rgba(201, 168, 76, 0.2);">
+      <p style="font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: 0.5rem;">You have an active game session!</p>
+      <button class="btn btn-primary btn-sm w-full" id="resume-btn" type="button">Resume Game (Session <span id="resume-session-id-display"></span>)</button>
+      <button class="btn btn-ghost btn-sm w-full" id="clear-resume-btn" type="button" style="margin-top: 0.25rem; font-size: var(--text-xs); color: var(--color-text-muted);">Clear and start fresh</button>
+    </div>
+
     <form class="login-form" id="login-form" novalidate>
       <div class="input-group">
         <label class="input-label" for="session-id">Session ID</label>
@@ -168,7 +175,7 @@
 <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
 <script type="module">
-  import { joinSession, isAblyConfigured, getCurrentPlayer } from './js/session.js?v=5';
+  import { joinSession, isAblyConfigured, getCurrentPlayer } from './js/session.js?v=6';
   import { showToast } from './js/ui.js';
 
   // Show setup warning if Ably not configured
@@ -176,10 +183,30 @@
     document.getElementById('setup-warning').style.display = 'block';
   }
 
-  // If already logged in, redirect
+  // Check if already logged in, show resume container instead of auto-redirecting
   const existingPlayer = getCurrentPlayer();
   if (existingPlayer) {
-    window.location.href = `game.html?session=${existingPlayer.sessionId}`;
+    const resumeContainer = document.getElementById('resume-container');
+    const resumeSessionId = document.getElementById('resume-session-id-display');
+    const resumeBtn = document.getElementById('resume-btn');
+    const clearResumeBtn = document.getElementById('clear-resume-btn');
+
+    if (resumeContainer && resumeSessionId && resumeBtn && clearResumeBtn) {
+      resumeSessionId.textContent = existingPlayer.sessionId;
+      resumeContainer.classList.remove('hidden');
+
+      resumeBtn.addEventListener('click', () => {
+        window.location.href = `game.html?session=${existingPlayer.sessionId}`;
+      });
+
+      clearResumeBtn.addEventListener('click', () => {
+        localStorage.removeItem('rummy_player');
+        localStorage.removeItem('rummy_session');
+        localStorage.removeItem('rummy_game_state');
+        resumeContainer.classList.add('hidden');
+        showToast('Session cleared. You can now join a new game.', 'success');
+      });
+    }
   }
 
   const form       = document.getElementById('login-form');
